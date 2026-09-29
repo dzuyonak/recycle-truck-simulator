@@ -131,3 +131,11 @@ game_trash_car/
 ## 📄 Лицензия
 
 Проект распространяется под свободной лицензией **MIT**. Подробности в файле [LICENSE](LICENSE).
+
+---
+
+### Disclaimer / Legal Notice
+This project is an unofficial fan-made interactive simulation created for educational and non-commercial purposes only. 
+- LEGO® and the LEGO logo are trademarks of the LEGO Group.
+- Mack® and the Mack design are registered trademarks of Mack Trucks, Inc.
+This project is not sponsored, endorsed, or affiliated with the LEGO Group, Mack Trucks, Inc., or any of their subsidiaries.
