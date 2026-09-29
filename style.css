@@ -1304,13 +1304,15 @@ body.touch-mode-active .gear-tag {
   left: 0;
   width: 100%;
   height: 100%;
-  background: rgba(6, 10, 18, 0.78);
+  background: rgba(6, 10, 18, 0.82);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   display: none;
   align-items: center;
   justify-content: center;
   z-index: 120;
+  padding: 10px;
+  box-sizing: border-box;
   animation: fadeIn 0.2s ease-out;
 }
 
@@ -1319,8 +1321,10 @@ body.touch-mode-active .gear-tag {
 }
 
 .pickup-window {
-  width: 92%;
+  width: min(94vw, 680px, calc((92vh - 78px) * (16 / 9)));
   max-width: 680px;
+  max-height: 94vh;
+  margin: auto;
   background: #111722;
   border: 2px solid var(--electric-cyan);
   border-radius: var(--radius-lg);
@@ -1337,13 +1341,15 @@ body.touch-mode-active .gear-tag {
 }
 
 .pickup-header {
-  padding: 12px 18px;
+  padding: 10px 16px;
   background: rgba(20, 28, 42, 0.95);
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   display: flex;
   justify-content: space-between;
   align-items: center;
   font-family: 'Outfit', sans-serif;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .rec-indicator {
@@ -1354,6 +1360,9 @@ body.touch-mode-active .gear-tag {
   font-weight: 800;
   color: #fff;
   letter-spacing: 0.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .rec-dot {
@@ -1363,6 +1372,7 @@ body.touch-mode-active .gear-tag {
   background: #e74c3c;
   box-shadow: 0 0 10px #e74c3c;
   animation: recBlink 1s infinite alternate;
+  flex-shrink: 0;
 }
 
 @keyframes recBlink {
@@ -1376,19 +1386,30 @@ body.touch-mode-active .gear-tag {
   color: var(--accent-green);
   letter-spacing: 0.8px;
   font-family: 'Outfit', monospace;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .pickup-canvas-wrapper {
   position: relative;
   width: 100%;
-  height: 360px;
-  background: #1a222e;
+  aspect-ratio: 16 / 9;
+  height: auto;
+  max-height: calc(92vh - 78px);
+  background: #0f1622;
   overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-#pickupCanvas {
+#pickupCanvas,
+#unloadCanvas,
+#pickupVideo {
   width: 100%;
   height: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
   display: block;
 }
 
@@ -1406,8 +1427,8 @@ body.touch-mode-active .gear-tag {
 
 .pickup-status-overlay {
   position: absolute;
-  bottom: 14px;
-  left: 18px;
+  bottom: 12px;
+  left: 14px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1427,18 +1448,21 @@ body.touch-mode-active .gear-tag {
 }
 
 .pickup-footer {
-  padding: 12px 18px;
+  padding: 10px 16px;
   background: rgba(20, 28, 42, 0.95);
   border-top: 1px solid rgba(255, 255, 255, 0.1);
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .pickup-gauge {
   display: flex;
   align-items: center;
   gap: 8px;
+  white-space: nowrap;
 }
 
 .gauge-label {
@@ -1448,7 +1472,7 @@ body.touch-mode-active .gear-tag {
 }
 
 .gauge-val {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 900;
   color: var(--accent-green);
   font-family: 'Outfit', sans-serif;
@@ -1457,6 +1481,7 @@ body.touch-mode-active .gear-tag {
 .pickup-skip-hint {
   font-size: 12px;
   color: var(--text-muted);
+  white-space: nowrap;
 }
 
 .pickup-skip-hint kbd {
@@ -1466,6 +1491,22 @@ body.touch-mode-active .gear-tag {
   color: #fff;
   font-family: 'Outfit', sans-serif;
   font-weight: 700;
+}
+
+.mobile-hint {
+  display: none;
+}
+.desktop-hint {
+  display: inline;
+}
+
+@media (hover: none) and (pointer: coarse), (max-width: 768px) {
+  .mobile-hint {
+    display: inline;
+  }
+  .desktop-hint {
+    display: none;
+  }
 }
 
 /* ==========================================================================
@@ -1512,4 +1553,99 @@ body.touch-mode-active .gear-tag {
 .green-val {
   color: #2ecc71;
   text-shadow: 0 0 10px rgba(46, 204, 113, 0.5);
+}
+
+/* Landscape Phones & Short Screens (max-height: 520px) */
+@media (max-height: 520px) {
+  .pickup-overlay {
+    padding: 6px;
+  }
+  .pickup-window {
+    width: min(94vw, 560px, calc((92vh - 56px) * (16 / 9)));
+    border-radius: var(--radius-md);
+  }
+  .pickup-canvas-wrapper {
+    max-height: calc(92vh - 56px);
+  }
+  .pickup-header {
+    padding: 5px 10px;
+  }
+  .rec-indicator {
+    font-size: 11px;
+    gap: 6px;
+  }
+  .rec-dot {
+    width: 8px;
+    height: 8px;
+  }
+  .pickup-telemetry {
+    font-size: 10px;
+  }
+  .pickup-footer {
+    padding: 5px 10px;
+  }
+  .gauge-label {
+    font-size: 10px;
+  }
+  .gauge-val {
+    font-size: 13px;
+  }
+  .pickup-skip-hint {
+    font-size: 10px;
+  }
+  .pickup-status-overlay {
+    bottom: 6px;
+    left: 8px;
+  }
+  .pickup-status-text {
+    padding: 3px 8px;
+    font-size: 10px;
+  }
+}
+
+/* Portrait Phones & Narrow Screens (max-width: 540px) */
+@media (max-width: 540px) {
+  .pickup-overlay {
+    padding: 8px;
+  }
+  .pickup-window {
+    width: 95vw;
+    border-radius: var(--radius-md);
+  }
+  .pickup-header {
+    padding: 7px 10px;
+    gap: 4px;
+  }
+  .rec-indicator {
+    font-size: 10px;
+    max-width: 56%;
+  }
+  .rec-dot {
+    width: 7px;
+    height: 7px;
+  }
+  .pickup-telemetry {
+    font-size: 9px;
+  }
+  .pickup-footer {
+    padding: 7px 10px;
+    gap: 6px;
+  }
+  .gauge-label {
+    font-size: 9px;
+  }
+  .gauge-val {
+    font-size: 12px;
+  }
+  .pickup-skip-hint {
+    font-size: 10px;
+  }
+  .pickup-status-overlay {
+    bottom: 6px;
+    left: 8px;
+  }
+  .pickup-status-text {
+    padding: 3px 8px;
+    font-size: 10px;
+  }
 }

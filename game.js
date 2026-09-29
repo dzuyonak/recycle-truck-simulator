@@ -2293,9 +2293,17 @@
 
   if (pickupOverlay) {
     pickupOverlay.addEventListener('click', skipCutscene);
+    pickupOverlay.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      skipCutscene();
+    }, { passive: false });
   }
   if (unloadOverlay) {
     unloadOverlay.addEventListener('click', skipCutscene);
+    unloadOverlay.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      skipCutscene();
+    }, { passive: false });
   }
 
   window.addEventListener('keydown', (e) => {
@@ -2312,6 +2320,24 @@
       }
     }
   });
+
+  // Helper to draw image onto canvas with cover-fit (proportional, zero distortion, centered)
+  function drawImageCover(ctx, img, targetX, targetY, targetW, targetH) {
+    const nw = img.naturalWidth || img.width;
+    const nh = img.naturalHeight || img.height;
+    if (!nw || !nh) return;
+    const targetAspect = targetW / targetH;
+    const imgAspect = nw / nh;
+    let sx = 0, sy = 0, sw = nw, sh = nh;
+    if (imgAspect > targetAspect) {
+      sw = nh * targetAspect;
+      sx = (nw - sw) / 2;
+    } else {
+      sh = nw / targetAspect;
+      sy = (nh - sh) / 2;
+    }
+    ctx.drawImage(img, sx, sy, sw, sh, targetX, targetY, targetW, targetH);
+  }
 
   // --- High-Resolution Cinematic Video Frame Renderer (6-Frame Sequence) ---
   function renderPickupCutscene(timestamp) {
@@ -2394,8 +2420,8 @@
     pCtx.translate(-W / 2, -H / 2);
 
     if (curImg && curImg.complete && curImg.naturalWidth > 0) {
-      // Draw photographic frame cover
-      pCtx.drawImage(curImg, 0, 0, W, H);
+      // Draw photographic frame cover with strictly preserved aspect ratio
+      drawImageCover(pCtx, curImg, 0, 0, W, H);
     } else {
       // Dark fallback with grid
       pCtx.fillStyle = '#161e2a';
@@ -2541,6 +2567,9 @@
     requestAnimationFrame(renderUnloadCutscene);
   }
 
+  window.startPickupCutscene = startPickupCutscene;
+  window.startFactoryUnloadCutscene = startFactoryUnloadCutscene;
+
   function finishFactoryUnloadCutscene() {
     if (!unloadCutsceneActive) return;
     unloadCutsceneActive = false;
@@ -2642,7 +2671,7 @@
     uCtx.translate(-W / 2, -H / 2);
 
     if (curImg && curImg.complete && curImg.naturalWidth > 0) {
-      uCtx.drawImage(curImg, 0, 0, W, H);
+      drawImageCover(uCtx, curImg, 0, 0, W, H);
     } else {
       uCtx.fillStyle = '#102018';
       uCtx.fillRect(0, 0, W, H);
