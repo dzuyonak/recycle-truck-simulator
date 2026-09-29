@@ -548,16 +548,44 @@ html, body {
   display: flex !important;
 }
 
-body.touch-mode-active .hud-bottom-left {
-  bottom: 114px;
-}
-
-body.touch-mode-active .action-prompt {
-  bottom: 140px;
-}
-
-body.touch-mode-active .hud-controls-hint {
+body.touch-mode-active .brand-card {
   display: none !important;
+}
+
+body.touch-mode-active .hud-controls-hint,
+body.touch-mode-active .action-prompt,
+body.touch-mode-active .hydraulic-status,
+body.touch-mode-active .touch-cluster-title,
+body.touch-mode-active .minimap-legend {
+  display: none !important;
+}
+
+body.touch-mode-active .hud-bottom-left {
+  bottom: 92px;
+  left: 14px;
+}
+
+body.touch-mode-active .speedometer-card {
+  padding: 3px 8px;
+  gap: 5px;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+}
+
+body.touch-mode-active .speed-value {
+  font-size: 18px;
+}
+
+body.touch-mode-active .speed-unit {
+  font-size: 8px;
+}
+
+body.touch-mode-active .gear-tag {
+  font-size: 10px;
+  padding: 1px 5px;
 }
 
 .hud-btn.active {
@@ -570,49 +598,44 @@ body.touch-mode-active .hud-controls-hint {
 .touch-steer-zone {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 0;
   pointer-events: auto;
 }
 
 .touch-cluster-title {
-  font-family: 'Outfit', sans-serif;
-  font-size: 9px;
-  font-weight: 800;
-  color: rgba(255, 255, 255, 0.45);
-  letter-spacing: 0.8px;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
-  padding-left: 4px;
+  display: none;
 }
 
 .touch-steer-buttons {
   display: flex;
-  gap: 10px;
+  gap: 8px;
 }
 
 .touch-steer-btn {
-  width: 78px;
-  height: 72px;
-  background: rgba(18, 26, 38, 0.84);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 2px solid rgba(0, 210, 211, 0.35);
+  width: 72px;
+  height: 66px;
+  background: rgba(15, 23, 42, 0.42);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1.5px solid rgba(0, 210, 211, 0.32);
   border-radius: 18px;
   color: #fff;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 3px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.15);
+  gap: 2px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
   cursor: pointer;
   touch-action: none;
-  transition: transform 0.08s ease, background 0.08s ease, border-color 0.08s ease;
+  opacity: 0.82;
+  transition: transform 0.08s ease, background 0.08s ease, border-color 0.08s ease, opacity 0.08s ease;
   user-select: none;
   -webkit-user-select: none;
 }
 
 .touch-steer-btn .steer-arrow {
-  font-size: 24px;
+  font-size: 22px;
   line-height: 1;
   color: var(--electric-cyan);
   transition: transform 0.08s ease;
@@ -620,18 +643,19 @@ body.touch-mode-active .hud-controls-hint {
 
 .touch-steer-btn .steer-label {
   font-family: 'Rubik', sans-serif;
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 800;
   letter-spacing: 0.5px;
-  color: var(--text-muted);
+  color: rgba(255, 255, 255, 0.6);
 }
 
 .touch-steer-btn:active,
 .touch-steer-btn.pressed {
-  background: rgba(0, 210, 211, 0.28);
+  background: rgba(0, 210, 211, 0.32);
   border-color: var(--electric-cyan);
   box-shadow: 0 2px 10px rgba(0, 210, 211, 0.5), inset 0 0 12px rgba(0, 210, 211, 0.4);
-  transform: translateY(3px) scale(0.96);
+  transform: translateY(2px) scale(0.96);
+  opacity: 1;
 }
 
 .touch-steer-btn:active .steer-arrow,
@@ -644,7 +668,7 @@ body.touch-mode-active .hud-controls-hint {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 10px;
+  gap: 8px;
   pointer-events: auto;
 }
 
@@ -652,83 +676,90 @@ body.touch-mode-active .hud-controls-hint {
   display: flex;
   align-items: center;
   gap: 8px;
+  margin-bottom: 2px;
 }
 
 .touch-quick-btn {
-  width: 44px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
-  background: rgba(20, 28, 42, 0.85);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border: 1.5px solid rgba(255, 255, 255, 0.22);
+  background: rgba(15, 23, 42, 0.42);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1.5px solid rgba(255, 255, 255, 0.2);
   color: #fff;
-  font-size: 18px;
+  font-size: 16px;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
   cursor: pointer;
   touch-action: none;
-  transition: transform 0.1s ease, border-color 0.1s ease;
+  opacity: 0.82;
+  transition: transform 0.1s ease, border-color 0.1s ease, opacity 0.1s ease;
 }
 
 .touch-quick-btn:active,
 .touch-quick-btn.pressed {
   transform: scale(0.92);
   border-color: var(--electric-cyan);
-  background: rgba(0, 210, 211, 0.25);
+  background: rgba(0, 210, 211, 0.35);
+  opacity: 1;
 }
 
 .touch-primary-action-btn {
-  height: 46px;
-  padding: 0 18px;
-  border-radius: 23px;
-  background: rgba(22, 32, 46, 0.9);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border: 2px solid rgba(255, 255, 255, 0.25);
+  height: 42px;
+  padding: 0 16px;
+  border-radius: 21px;
+  background: rgba(15, 23, 42, 0.52);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1.5px solid rgba(255, 255, 255, 0.25);
   color: #fff;
   font-family: 'Rubik', sans-serif;
   font-weight: 800;
-  font-size: 13px;
+  font-size: 12px;
   letter-spacing: 0.5px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  gap: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
   cursor: pointer;
   touch-action: none;
+  opacity: 0.85;
   transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
 .touch-primary-action-btn .btn-icon {
-  font-size: 18px;
+  font-size: 16px;
 }
 
 .touch-primary-action-btn.ready-grab {
-  background: linear-gradient(135deg, var(--accent-green), #27ae60);
+  background: linear-gradient(135deg, rgba(46, 204, 113, 0.9), rgba(39, 174, 96, 0.95));
   border-color: #2ecc71;
-  box-shadow: 0 0 25px rgba(46, 204, 113, 0.75);
+  box-shadow: 0 0 20px rgba(46, 204, 113, 0.7);
+  opacity: 1;
   animation: pulseTouchAction 0.9s infinite alternate;
 }
 
 .touch-primary-action-btn.ready-unload {
-  background: linear-gradient(135deg, var(--warning-amber), #d35400);
+  background: linear-gradient(135deg, rgba(243, 156, 18, 0.9), rgba(211, 84, 0, 0.95));
   border-color: #f39c12;
-  box-shadow: 0 0 25px rgba(243, 156, 18, 0.75);
+  box-shadow: 0 0 20px rgba(243, 156, 18, 0.7);
+  opacity: 1;
   animation: pulseTouchAction 0.9s infinite alternate;
 }
 
 .touch-primary-action-btn.busy {
-  background: rgba(44, 62, 80, 0.9);
-  border-color: rgba(255, 255, 255, 0.2);
-  opacity: 0.85;
+  background: rgba(44, 62, 80, 0.75);
+  border-color: rgba(255, 255, 255, 0.15);
+  opacity: 0.8;
 }
 
 .touch-primary-action-btn:active,
 .touch-primary-action-btn.pressed {
   transform: scale(0.94);
+  opacity: 1;
 }
 
 @keyframes pulseTouchAction {
@@ -739,7 +770,7 @@ body.touch-mode-active .hud-controls-hint {
 /* Vehicle Pedals Cluster */
 .touch-pedals-cluster {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   align-items: flex-end;
 }
 
@@ -1036,77 +1067,231 @@ body.touch-mode-active .hud-controls-hint {
   width: 100%;
 }
 
-/* Media Queries for responsive and touch devices */
-@media (max-width: 900px) {
-  .hud-top {
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-  .task-card {
-    order: 3;
-    max-width: 100%;
-    width: 100%;
-  }
-  .hud-controls-hint {
-    display: none;
-  }
-}
+/* ==========================================================================
+   MOBILE & TABLET RESPONSIVE HUD OPTIMIZATION (УСТРАНЕНИЕ ПЕРЕГРУЗКИ ЭКРАНА)
+   ========================================================================== */
 
-@media (pointer: coarse), (max-width: 1024px) {
+/* Tablets, iPads, and touch laptops / mobile devices */
+@media (max-width: 1024px), (pointer: coarse) {
   .mobile-controls {
     display: flex;
   }
-  .hud-controls-hint {
+  .brand-card {
+    display: none !important;
+  }
+  .hud-top {
+    top: 8px;
+    left: 8px;
+    right: 8px;
+    gap: 8px;
+    align-items: center;
+  }
+  .task-card {
+    order: 1;
+    padding: 6px 12px;
+    gap: 8px;
+    max-width: none;
+    flex: 1;
+    background: rgba(15, 23, 42, 0.65);
+    border-radius: 20px;
+    border-left: 2px solid var(--electric-cyan);
+  }
+  .task-label {
     display: none;
   }
-  .hud-bottom-left {
-    bottom: 114px;
-    left: 16px;
+  .task-icon {
+    font-size: 18px;
+  }
+  .task-text {
+    font-size: 12px;
+    max-width: 220px;
+  }
+  .gps-pointer {
+    padding: 3px 8px;
+    gap: 4px;
+    border-radius: 12px;
+  }
+  .gps-distance {
+    font-size: 11px;
+  }
+  .stats-card {
+    padding: 6px 10px;
+    gap: 8px;
+    background: rgba(15, 23, 42, 0.65);
+    border-radius: 20px;
+  }
+  .stat-header span:first-child {
+    display: none; /* Hide verbose "ЗАПОЛНЕНИЕ КУЗОВА" */
+  }
+  .progress-bar-bg {
+    display: none; /* Keep clean numerical badge */
+  }
+  .stat-value {
+    font-size: 12px;
+    font-weight: 800;
+  }
+  .eco-score-badge {
+    padding: 2px 6px;
+    font-size: 11px;
+    border-radius: 10px;
+  }
+  .hud-controls-group {
+    gap: 5px;
+  }
+  .hud-btn {
+    width: 34px;
+    height: 34px;
+    font-size: 14px;
+    border-radius: 17px;
+    background: rgba(15, 23, 42, 0.65);
+  }
+  #helpBtn {
+    display: none; /* Self-explanatory controls on touch */
+  }
+  .hud-controls-hint {
+    display: none !important;
   }
   .action-prompt {
-    bottom: 140px;
+    display: none !important; /* Right thumb button handles actions seamlessly */
+  }
+  .hydraulic-status {
+    display: none !important;
+  }
+  .touch-cluster-title {
+    display: none !important;
+  }
+  .minimap-legend {
+    display: none !important;
   }
   .minimap-container {
-    top: 76px;
-    right: 14px;
-    bottom: auto;
-    width: 110px;
-    height: 135px;
+    top: 54px;
+    right: 8px;
+    width: 72px;
+    height: 72px;
+    padding: 2px;
+    border-radius: 50%;
+    border: 1.5px solid rgba(0, 210, 211, 0.4);
+    background: rgba(15, 23, 42, 0.65);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
   }
   #minimapCanvas {
-    width: 110px;
-    height: 110px;
+    width: 68px;
+    height: 68px;
+    border-radius: 50%;
+  }
+  .hud-bottom-left {
+    bottom: 92px;
+    left: 10px;
+  }
+  .speedometer-card {
+    padding: 3px 8px;
+    border-radius: 12px;
+    background: rgba(15, 23, 42, 0.5);
+    gap: 5px;
+  }
+  .speed-value {
+    font-size: 18px;
+  }
+  .speed-unit {
+    font-size: 8px;
+  }
+  .gear-tag {
+    font-size: 10px;
+    padding: 1px 4px;
   }
 }
 
-@media (max-width: 600px) {
-  .brand-subtitle {
-    display: none;
+/* Mobile Landscape Orientation (Smartphones held horizontally) */
+@media (max-height: 520px) {
+  .hud-top {
+    top: 5px;
+    left: 6px;
+    right: 6px;
+    gap: 6px;
   }
-  .brand-title {
-    font-size: 13px;
+  .task-card, .stats-card {
+    padding: 3px 8px;
   }
-  .touch-steer-btn {
-    width: 66px;
-    height: 64px;
+  .task-text {
+    font-size: 11px;
+    max-width: 170px;
+  }
+  .mobile-controls {
+    bottom: 6px;
+    padding: 0 10px;
   }
   .touch-pedal-btn.btn-gas {
-    width: 74px;
-    height: 94px;
+    width: 68px;
+    height: 76px;
   }
   .touch-pedal-btn.btn-brake {
-    width: 68px;
-    height: 80px;
+    width: 62px;
+    height: 66px;
+  }
+  .touch-steer-btn {
+    width: 62px;
+    height: 56px;
+  }
+  .touch-actions-row {
+    margin-bottom: 2px;
+    gap: 6px;
   }
   .touch-primary-action-btn {
-    height: 40px;
+    height: 36px;
     padding: 0 12px;
     font-size: 11px;
   }
   .touch-quick-btn {
-    width: 38px;
-    height: 38px;
-    font-size: 16px;
+    width: 34px;
+    height: 34px;
+    font-size: 14px;
+  }
+  .minimap-container {
+    top: 44px;
+    width: 60px;
+    height: 60px;
+  }
+  #minimapCanvas {
+    width: 56px;
+    height: 56px;
+  }
+  .hud-bottom-left {
+    bottom: 74px;
+    left: 8px;
+  }
+}
+
+/* Small portrait screens (Smartphones held vertically) */
+@media (max-width: 540px) and (min-height: 521px) {
+  .hud-top {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .task-card {
+    width: 100%;
+    order: 2;
+  }
+  .stats-card {
+    order: 1;
+    flex: 1;
+  }
+  .hud-controls-group {
+    order: 1;
+  }
+  .minimap-container {
+    top: 92px;
+  }
+  .touch-steer-btn {
+    width: 64px;
+    height: 60px;
+  }
+  .touch-pedal-btn.btn-gas {
+    width: 66px;
+    height: 80px;
+  }
+  .touch-pedal-btn.btn-brake {
+    width: 60px;
+    height: 70px;
   }
 }
 
