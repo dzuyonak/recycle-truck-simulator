@@ -414,12 +414,12 @@
     z: -120,
     angle: 0,
     speed: 0,
-    // Realistic lower speeds for a heavy 25-ton municipal garbage truck
-    maxForward: 0.48,     // ~38 km/h max speed
-    maxReverse: -0.22,    // ~16 km/h reverse
-    accel: 0.009,         // Heavy realistic inertia
-    brake: 0.024,         // Firm air-brakes
-    friction: 0.004,
+    // Realistic lower speeds for a heavy 25-ton municipal garbage truck (reduced by 25% for refined urban control)
+    maxForward: 0.36,     // ~30 km/h max speed (-25%)
+    maxReverse: -0.165,   // ~14 km/h reverse (-25%)
+    accel: 0.0068,        // Heavy realistic inertia (-25%)
+    brake: 0.018,         // Firm air-brakes (-25%)
+    friction: 0.003,      // Smooth roll friction (-25%)
     turnSpeed: 0.026,
     steerAngle: 0,
 
