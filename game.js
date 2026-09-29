@@ -989,6 +989,98 @@
     return binGroup;
   }
 
+  // --- 3D Target Markers (Floating Green Arrow & Pulsing Ground Halo) ---
+  const matMarkerGreen = new THREE.MeshStandardMaterial({
+    color: 0x2ecc71,
+    emissive: 0x27ae60,
+    emissiveIntensity: 0.95,
+    roughness: 0.25,
+    metalness: 0.1
+  });
+
+  const matMarkerDiamond = new THREE.MeshStandardMaterial({
+    color: 0x00d2d3,
+    emissive: 0x00d2d3,
+    emissiveIntensity: 0.85,
+    roughness: 0.15
+  });
+
+  const arrowConeGeom = new THREE.ConeGeometry(0.38, 0.65, 8);
+  arrowConeGeom.rotateX(Math.PI); // Point downwards towards bin
+  const arrowStemGeom = new THREE.CylinderGeometry(0.14, 0.14, 0.48, 8);
+  const arrowGemGeom = new THREE.OctahedronGeometry(0.2);
+  const markerRingGeom = new THREE.RingGeometry(0.85, 1.25, 24);
+  markerRingGeom.rotateX(-Math.PI / 2);
+
+  function createBinMarker() {
+    const markerGroup = new THREE.Group();
+
+    // 1. Floating Animated Arrow
+    const arrowGroup = new THREE.Group();
+    arrowGroup.position.y = 2.4;
+
+    const cone = new THREE.Mesh(arrowConeGeom, matMarkerGreen);
+    cone.position.y = -0.2;
+    arrowGroup.add(cone);
+
+    const stem = new THREE.Mesh(arrowStemGeom, matMarkerGreen);
+    stem.position.y = 0.35;
+    arrowGroup.add(stem);
+
+    const gem = new THREE.Mesh(arrowGemGeom, matMarkerDiamond);
+    gem.position.y = 0.72;
+    arrowGroup.add(gem);
+
+    markerGroup.add(arrowGroup);
+
+    // 2. Ground Pulsing Ring
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: 0x2ecc71,
+      transparent: true,
+      opacity: 0.65,
+      side: THREE.DoubleSide,
+      depthWrite: false
+    });
+    const ring = new THREE.Mesh(markerRingGeom, ringMat);
+    ring.position.y = 0.05;
+    markerGroup.add(ring);
+
+    markerGroup.arrowGroup = arrowGroup;
+    markerGroup.ring = ring;
+
+    return markerGroup;
+  }
+
+  // --- Factory Delivery Beacon ---
+  const factoryBeaconConeGeom = new THREE.ConeGeometry(1.1, 1.9, 8);
+  factoryBeaconConeGeom.rotateX(Math.PI);
+  const factoryBeaconStemGeom = new THREE.CylinderGeometry(0.35, 0.35, 1.2, 8);
+  const matFactoryBeacon = new THREE.MeshStandardMaterial({
+    color: 0xf39c12,
+    emissive: 0xe67e22,
+    emissiveIntensity: 0.95,
+    roughness: 0.2
+  });
+
+  function createFactoryBeacon() {
+    const group = new THREE.Group();
+    const arrowGroup = new THREE.Group();
+    arrowGroup.position.y = 6.0;
+
+    const cone = new THREE.Mesh(factoryBeaconConeGeom, matFactoryBeacon);
+    cone.position.y = -0.6;
+    arrowGroup.add(cone);
+
+    const stem = new THREE.Mesh(factoryBeaconStemGeom, matFactoryBeacon);
+    stem.position.y = 0.85;
+    arrowGroup.add(stem);
+
+    group.add(arrowGroup);
+    group.arrowGroup = arrowGroup;
+    group.visible = false;
+    return group;
+  }
+
   // --- 3D City Environment Generation ---
   let buildings3D = [];
   let trashBins3D = [];
@@ -1260,9 +1352,16 @@
 
   function generate3DCity() {
     buildings3D.forEach(b => scene.remove(b));
-    trashBins3D.forEach(b => scene.remove(b.mesh));
+    trashBins3D.forEach(b => {
+      scene.remove(b.mesh);
+      if (b.marker) scene.remove(b.marker);
+    });
+    if (recyclingPlant3D && recyclingPlant3D.beacon) {
+      scene.remove(recyclingPlant3D.beacon);
+    }
     buildings3D = [];
     trashBins3D = [];
+    recyclingPlant3D = null;
     colliders.length = 0;
 
     // Ground Grass Plane
@@ -1781,9 +1880,14 @@
     binMesh.rotation.y = angle;
     scene.add(binMesh);
 
+    const marker = createBinMarker();
+    marker.position.set(x, 0, z);
+    scene.add(marker);
+
     trashBins3D.push({
       mesh: binMesh,
       lidGroup: binMesh.lidGroup,
+      marker: marker,
       x: x,
       z: z,
       color: color,
@@ -1998,9 +2102,14 @@
 
     scene.add(plantGroup);
 
+    const factoryBeacon = createFactoryBeacon();
+    factoryBeacon.position.set(cx + w * 0.18, 0, cz + d * 0.22);
+    scene.add(factoryBeacon);
+
     recyclingPlant3D = {
       x: cx,
       z: cz,
+      beacon: factoryBeacon,
       unloadBay: {
         x: cx + w * 0.18,
         z: cz + d * 0.22,
@@ -2043,6 +2152,9 @@
       bin.collected = idx >= gameState.totalBins;
       bin.mesh.visible = true;
       if (bin.lidGroup) bin.lidGroup.rotation.x = 0;
+      if (bin.marker) {
+        bin.marker.visible = !bin.collected;
+      }
     });
 
     gameState.collectedBins = 0;
@@ -2227,6 +2339,7 @@
     cutsceneActive = true;
     cutsceneStartTime = performance.now();
     cutsceneTargetBin = targetBin;
+    if (targetBin && targetBin.marker) targetBin.marker.visible = false;
     truckPhys.speed = 0; // stop vehicle during loading
 
     if (pickupOverlay) pickupOverlay.classList.add('show');
@@ -2271,6 +2384,7 @@
     if (cutsceneTargetBin) {
       cutsceneTargetBin.collected = true;
       cutsceneTargetBin.mesh.visible = true;
+      if (cutsceneTargetBin.marker) cutsceneTargetBin.marker.visible = false;
       if (cutsceneTargetBin.lidGroup) cutsceneTargetBin.lidGroup.rotation.x = -1.6;
       gameState.collectedBins++;
       gameState.totalKg += 120;
@@ -3242,12 +3356,18 @@
     // Bins
     trashBins3D.forEach(b => {
       if (b.collected) return;
-      mCtx.fillStyle = '#2ecc71';
+      const isTarget = (gameState.targetBin === b);
+      mCtx.fillStyle = isTarget ? '#00d2d3' : '#2ecc71';
       const bx = (b.x / (WORLD_SIZE / 2)) * halfW + halfW;
       const bz = (b.z / (WORLD_SIZE / 2)) * halfH + halfH;
       mCtx.beginPath();
-      mCtx.arc(bx, bz, 3.5, 0, Math.PI * 2);
+      mCtx.arc(bx, bz, isTarget ? 5.0 : 3.5, 0, Math.PI * 2);
       mCtx.fill();
+      if (isTarget) {
+        mCtx.strokeStyle = '#ffffff';
+        mCtx.lineWidth = 1.5;
+        mCtx.stroke();
+      }
     });
 
     // Truck
@@ -3266,6 +3386,53 @@
     mCtx.restore();
   }
 
+  function updateBinMarkers3D() {
+    const time = performance.now() * 0.003;
+    const isDelivering = gameState.status === 'delivering';
+    const isCompleted = gameState.status === 'completed' || gameState.status === 'free_drive';
+
+    for (let i = 0; i < trashBins3D.length; i++) {
+      const bin = trashBins3D[i];
+      if (!bin.marker) continue;
+
+      if (bin.collected || isDelivering || isCompleted) {
+        bin.marker.visible = false;
+        continue;
+      }
+
+      bin.marker.visible = true;
+
+      const dist = Math.hypot(truckPhys.x - bin.x, truckPhys.z - bin.z);
+      const isTarget = (gameState.targetBin === bin);
+      const isClose = isTarget || dist < 7.5;
+
+      const speed = isClose ? 5.2 : 3.2;
+      const amp = isClose ? 0.32 : 0.20;
+      bin.marker.arrowGroup.position.y = 2.4 + Math.sin(time * speed + i * 0.9) * amp;
+      bin.marker.arrowGroup.rotation.y += (isClose ? 0.05 : 0.03);
+
+      const targetScale = isClose ? 1.25 : 1.0;
+      bin.marker.arrowGroup.scale.set(targetScale, targetScale, targetScale);
+
+      if (bin.marker.ring) {
+        const ringPulse = 0.45 + Math.sin(time * speed + i) * 0.3;
+        bin.marker.ring.material.opacity = isClose ? 0.85 : ringPulse;
+        const ringScale = isClose ? (1.05 + Math.sin(time * 5) * 0.12) : 1.0;
+        bin.marker.ring.scale.set(ringScale, ringScale, 1.0);
+      }
+    }
+
+    if (recyclingPlant3D && recyclingPlant3D.beacon) {
+      if (isDelivering && !isCompleted) {
+        recyclingPlant3D.beacon.visible = true;
+        recyclingPlant3D.beacon.arrowGroup.position.y = 6.2 + Math.sin(time * 4.0) * 0.45;
+        recyclingPlant3D.beacon.arrowGroup.rotation.y += 0.035;
+      } else {
+        recyclingPlant3D.beacon.visible = false;
+      }
+    }
+  }
+
   // --- Main Animation Loop ---
   let frameCount = 0;
   function loop() {
@@ -3274,6 +3441,7 @@
     updateFactoryUnload3D();
     update3DParticles();
     updateInteractions3D();
+    updateBinMarkers3D();
     updateDashboard();
     updateCamera();
 
