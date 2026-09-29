@@ -25,6 +25,11 @@
   const camBtn = document.getElementById('camBtn');
   const camIcon = document.getElementById('camIcon');
   const helpBtn = document.getElementById('helpBtn');
+  const unstuckBtn = document.getElementById('unstuckBtn');
+  const toastNotification = document.getElementById('toastNotification');
+  const toastIcon = document.getElementById('toastIcon');
+  const toastTitle = document.getElementById('toastTitle');
+  const toastDesc = document.getElementById('toastDesc');
   const helpModal = document.getElementById('helpModal');
   const helpCloseBtn = document.getElementById('helpCloseBtn');
   const helpOkBtn = document.getElementById('helpOkBtn');
@@ -60,6 +65,7 @@
   const grabBtnText = document.getElementById('grabBtnText');
   const btnHornAction = document.getElementById('btnHornAction');
   const btnMobileCam = document.getElementById('btnMobileCam');
+  const btnMobileUnstuck = document.getElementById('btnMobileUnstuck');
 
   // Minimap
   const minimapCanvas = document.getElementById('minimapCanvas');
@@ -219,6 +225,10 @@
     }
     if (e.code === 'KeyC') toggleCamera();
     if (e.code === 'KeyH') triggerHorn();
+    if (e.code === 'KeyR') {
+      e.preventDefault();
+      resetTruckToRoad();
+    }
   });
 
   window.addEventListener('keyup', (e) => {
@@ -335,6 +345,26 @@
     };
     btnMobileCam.addEventListener('touchstart', handleCam, { passive: false });
     btnMobileCam.addEventListener('click', handleCam);
+  }
+
+  // Touch Unstuck / Rescue switch
+  if (btnMobileUnstuck) {
+    const handleMobileUnstuck = (e) => {
+      if (e && e.cancelable) e.preventDefault();
+      btnMobileUnstuck.classList.add('pressed');
+      setTimeout(() => btnMobileUnstuck.classList.remove('pressed'), 140);
+      resetTruckToRoad();
+    };
+    btnMobileUnstuck.addEventListener('touchstart', handleMobileUnstuck, { passive: false });
+    btnMobileUnstuck.addEventListener('click', handleMobileUnstuck);
+  }
+
+  // Header Unstuck button
+  if (unstuckBtn) {
+    unstuckBtn.addEventListener('click', (e) => {
+      if (e && e.cancelable) e.preventDefault();
+      resetTruckToRoad();
+    });
   }
 
   if (promptActionBtn) {
@@ -455,6 +485,44 @@
   };
 
   let cutsceneActive = false;
+  let stuckTimer = 0;
+  let isStuckPulsingActive = false;
+  let toastTimeout = null;
+
+  function showToast(title, desc, icon = '🛣️', duration = 2800, isAlert = false) {
+    if (!toastNotification) return;
+    if (toastTitle) toastTitle.textContent = title;
+    if (toastDesc) toastDesc.textContent = desc;
+    if (toastIcon) toastIcon.textContent = icon;
+    if (isAlert) {
+      toastNotification.classList.add('stuck-alert');
+    } else {
+      toastNotification.classList.remove('stuck-alert');
+    }
+    toastNotification.classList.add('show');
+    clearTimeout(toastTimeout);
+    toastTimeout = setTimeout(() => {
+      toastNotification.classList.remove('show', 'stuck-alert');
+    }, duration);
+  }
+
+  function hideToast() {
+    if (!toastNotification) return;
+    clearTimeout(toastTimeout);
+    toastNotification.classList.remove('show', 'stuck-alert');
+  }
+
+  function setStuckPulsing(active) {
+    isStuckPulsingActive = active;
+    if (unstuckBtn) {
+      if (active) unstuckBtn.classList.add('stuck-pulsing');
+      else unstuckBtn.classList.remove('stuck-pulsing');
+    }
+    if (btnMobileUnstuck) {
+      if (active) btnMobileUnstuck.classList.add('stuck-pulsing');
+      else btnMobileUnstuck.classList.remove('stuck-pulsing');
+    }
+  }
 
   // --- Detailed 3D Model Materials ---
   const matLegoWhite = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.22, metalness: 0.04 });
@@ -2174,6 +2242,9 @@
     truckPhys.isDumpingAtFactory = false;
     cutsceneActive = false;
     unloadCutsceneActive = false;
+    stuckTimer = 0;
+    setStuckPulsing(false);
+    hideToast();
     if (pickupOverlay) pickupOverlay.classList.remove('show');
     if (unloadOverlay) unloadOverlay.classList.remove('show');
 
@@ -2223,20 +2294,22 @@
     if (keys.left) truckPhys.steerAngle = 0.42;
     if (keys.right) truckPhys.steerAngle = -0.42;
 
+    const prevAngle = truckPhys.angle;
+    let nextAngle = truckPhys.angle;
     if (Math.abs(truckPhys.speed) > 0.015) {
       const dir = truckPhys.speed >= 0 ? 1 : -1;
-      if (keys.left) truckPhys.angle += truckPhys.turnSpeed * dir * (0.65 + Math.abs(speedRatio) * 0.35);
-      if (keys.right) truckPhys.angle -= truckPhys.turnSpeed * dir * (0.65 + Math.abs(speedRatio) * 0.35);
+      if (keys.left) nextAngle += truckPhys.turnSpeed * dir * (0.65 + Math.abs(speedRatio) * 0.35);
+      if (keys.right) nextAngle -= truckPhys.turnSpeed * dir * (0.65 + Math.abs(speedRatio) * 0.35);
     }
 
     // Candidate next position
-    const nextX = truckPhys.x + Math.sin(truckPhys.angle) * truckPhys.speed;
-    const nextZ = truckPhys.z + Math.cos(truckPhys.angle) * truckPhys.speed;
+    const nextX = truckPhys.x + Math.sin(nextAngle) * truckPhys.speed;
+    const nextZ = truckPhys.z + Math.cos(nextAngle) * truckPhys.speed;
 
     // Strict Multi-Point Oriented Collision Check
     // We test 6 perimeter points of the truck (front-left, front-right, rear-left, rear-right, mid-left, mid-right)
-    const cosA = Math.cos(truckPhys.angle);
-    const sinA = Math.sin(truckPhys.angle);
+    const cosA = Math.cos(nextAngle);
+    const sinA = Math.sin(nextAngle);
     const halfL = truckPhys.length / 2;
     const halfW = truckPhys.width / 2;
 
@@ -2263,9 +2336,27 @@
     if (!collided) {
       truckPhys.x = nextX;
       truckPhys.z = nextZ;
+      truckPhys.angle = nextAngle;
     } else {
       // Solid collision response: bounce back and damp speed
       truckPhys.speed *= -0.28;
+      // Do not wedge corners into obstacle when rotating
+      truckPhys.angle = prevAngle;
+    }
+
+    // Intelligent Stuck Detection:
+    // If player is attempting to drive but unable to move for ~1.8s
+    if ((keys.up || keys.down) && Math.abs(truckPhys.speed) < 0.03) {
+      stuckTimer += 1 / 60;
+      if (stuckTimer > 1.8 && !isStuckPulsingActive) {
+        setStuckPulsing(true);
+        showToast('МАШИНА ЗАСТРЯЛА?', 'Нажмите клавишу [R] или кнопку 🛣️ «На дорогу» для эвакуации', '⚠️', 4000, true);
+      }
+    } else if (Math.abs(truckPhys.speed) > 0.07) {
+      if (stuckTimer > 0) {
+        stuckTimer = 0;
+        setStuckPulsing(false);
+      }
     }
 
     // World Boundary constraint
@@ -2298,6 +2389,188 @@
 
   // --- Robotic Arm Stub (In-world arm replaced by cutscene modal) ---
   function updateRoboticArm3D() {}
+
+  // --- Safe Road Position Finder & Unstuck Rescue System ---
+  function isTruckCollidingAt(x, z, angle) {
+    const cosA = Math.cos(angle);
+    const sinA = Math.sin(angle);
+    const halfL = truckPhys.length / 2;
+    const halfW = truckPhys.width / 2;
+
+    const testPoints = [
+      { x: x + sinA * halfL - cosA * halfW, z: z + cosA * halfL + sinA * halfW },
+      { x: x + sinA * halfL + cosA * halfW, z: z + cosA * halfL - sinA * halfW },
+      { x: x - sinA * halfL - cosA * halfW, z: z - cosA * halfL + sinA * halfW },
+      { x: x - sinA * halfL + cosA * halfW, z: z - cosA * halfL - sinA * halfW },
+      { x: x - cosA * halfW, z: z + sinA * halfW },
+      { x: x + cosA * halfW, z: z - sinA * halfW },
+      { x: x, z: z }
+    ];
+
+    for (const c of colliders) {
+      for (const p of testPoints) {
+        if (p.x >= c.minX && p.x <= c.maxX && p.z >= c.minZ && p.z <= c.maxZ) {
+          return true;
+        }
+      }
+    }
+
+    if (Array.isArray(trashBins3D)) {
+      for (const b of trashBins3D) {
+        if (!b.collected && Math.hypot(x - b.x, z - b.z) < 3.4) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  function findNearestRoadSpot() {
+    const curX = truckPhys.x;
+    const curZ = truckPhys.z;
+    const bLimit = WORLD_SIZE / 2 - 18;
+
+    const candidates = [];
+
+    // Horizontal roads: constant z = gz, runs along X
+    gridCoords.forEach(gz => {
+      const distZ = Math.abs(curZ - gz);
+      const clampedX = Math.max(-bLimit, Math.min(bLimit, curX));
+      const sinA = Math.sin(truckPhys.angle);
+      const heading = (sinA >= 0) ? Math.PI / 2 : -Math.PI / 2;
+      const laneOffsetZ = (heading > 0) ? 3.6 : -3.6;
+
+      candidates.push({
+        type: 'horizontal',
+        x: clampedX,
+        z: gz + laneOffsetZ,
+        angle: heading,
+        dist: distZ
+      });
+      candidates.push({
+        type: 'horizontal',
+        x: clampedX,
+        z: gz,
+        angle: heading,
+        dist: distZ + 0.1
+      });
+    });
+
+    // Vertical roads: constant x = gx, runs along Z
+    gridCoords.forEach(gx => {
+      const distX = Math.abs(curX - gx);
+      const clampedZ = Math.max(-bLimit, Math.min(bLimit, curZ));
+      const cosA = Math.cos(truckPhys.angle);
+      const heading = (cosA >= 0) ? 0 : Math.PI;
+      const laneOffsetX = (heading === 0) ? -3.6 : 3.6;
+
+      candidates.push({
+        type: 'vertical',
+        x: gx + laneOffsetX,
+        z: clampedZ,
+        angle: heading,
+        dist: distX
+      });
+      candidates.push({
+        type: 'vertical',
+        x: gx,
+        z: clampedZ,
+        angle: heading,
+        dist: distX + 0.1
+      });
+    });
+
+    candidates.sort((a, b) => a.dist - b.dist);
+
+    for (const cand of candidates) {
+      if (!isTruckCollidingAt(cand.x, cand.z, cand.angle)) {
+        return cand;
+      }
+      const nudges = [4, -4, 8, -8, 12, -12, 16, -16];
+      for (const d of nudges) {
+        let testX = cand.x;
+        let testZ = cand.z;
+        if (cand.type === 'horizontal') {
+          testX = Math.max(-bLimit, Math.min(bLimit, cand.x + d));
+        } else {
+          testZ = Math.max(-bLimit, Math.min(bLimit, cand.z + d));
+        }
+        if (!isTruckCollidingAt(testX, testZ, cand.angle)) {
+          return { x: testX, z: testZ, angle: cand.angle };
+        }
+      }
+    }
+
+    return { x: -40, z: 25, angle: 0 };
+  }
+
+  function resetTruckToRoad() {
+    window.soundManager.ensureContext();
+    if (cutsceneActive || unloadCutsceneActive) return;
+
+    stuckTimer = 0;
+    setStuckPulsing(false);
+
+    const spot = findNearestRoadSpot();
+
+    truckPhys.x = spot.x;
+    truckPhys.z = spot.z;
+    truckPhys.angle = spot.angle;
+    truckPhys.speed = 0;
+    truckPhys.steerAngle = 0;
+    truckPhys.pitch = 0;
+    truckPhys.roll = 0;
+
+    truckMesh.position.set(truckPhys.x, 0, truckPhys.z);
+    truckMesh.rotation.set(0, truckPhys.angle, 0);
+
+    wheels.forEach(w => {
+      if (w.isFront) w.group.rotation.y = 0;
+    });
+
+    if (cameraMode === 0) {
+      const distBehind = 13.8;
+      const heightAbove = 6.2;
+      const quarterAngle = 0.24;
+      const camAngle = truckPhys.angle - quarterAngle;
+      camera.position.x = truckPhys.x - Math.sin(camAngle) * distBehind;
+      camera.position.z = truckPhys.z - Math.cos(camAngle) * distBehind;
+      camera.position.y = heightAbove;
+      camera.lookAt(
+        truckPhys.x + Math.sin(truckPhys.angle) * 3.8,
+        1.75,
+        truckPhys.z + Math.cos(truckPhys.angle) * 3.8
+      );
+    } else if (cameraMode === 1) {
+      const distBehindTop = 20.0;
+      const sideOffsetTop = 14.0;
+      camera.position.x = truckPhys.x - Math.sin(truckPhys.angle) * distBehindTop - Math.cos(truckPhys.angle) * sideOffsetTop;
+      camera.position.z = truckPhys.z - Math.cos(truckPhys.angle) * distBehindTop + Math.sin(truckPhys.angle) * sideOffsetTop;
+      camera.position.y = 16.0;
+      camera.lookAt(
+        truckPhys.x + Math.sin(truckPhys.angle) * 4.0,
+        1.0,
+        truckPhys.z + Math.cos(truckPhys.angle) * 4.0
+      );
+    }
+
+    if (window.soundManager.playRescue) {
+      window.soundManager.playRescue();
+    } else {
+      window.soundManager.playClick();
+    }
+
+    if (typeof matAmberBeacon !== 'undefined') {
+      const origIntensity = matAmberBeacon.emissiveIntensity;
+      matAmberBeacon.emissiveIntensity = 2.4;
+      setTimeout(() => {
+        matAmberBeacon.emissiveIntensity = origIntensity;
+      }, 400);
+    }
+
+    showToast('МАШИНА ВЕРНУТА НА ДОРОГУ', 'Эвакуация на безопасную полосу выполнена • Двигатель готов', '🛣️', 2600);
+  }
 
   // --- Trash Pickup Cutscene Engine (Мини-видеоролик / Стоп-моушн бортовой камеры) ---
   const pickupVideo = document.getElementById('pickupVideo');

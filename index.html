@@ -59,8 +59,12 @@
         </div>
       </div>
 
-      <!-- Audio / Camera / Help buttons -->
+      <!-- Audio / Camera / Unstuck / Help buttons -->
       <div class="hud-controls-group">
+        <button id="unstuckBtn" class="hud-btn unstuck-btn" title="Вернуть на дорогу при застревании [R]" aria-label="Вернуть на дорогу">
+          <span class="unstuck-icon">🛣️</span>
+          <span class="unstuck-key-hint">R</span>
+        </button>
         <button id="touchToggleBtn" class="hud-btn" title="Сенсорные кнопки на экране" aria-label="Сенсорное управление">
           <span id="touchToggleIcon">📱</span>
         </button>
@@ -83,6 +87,15 @@
         <span><i class="dot truck-dot"></i> Вы</span>
         <span><i class="dot bin-dot"></i> Бак</span>
         <span><i class="dot plant-dot"></i> Завод</span>
+      </div>
+    </div>
+
+    <!-- Rescue / Toast Notification Banner -->
+    <div class="toast-notification" id="toastNotification" aria-live="polite">
+      <span class="toast-icon" id="toastIcon">🛣️</span>
+      <div class="toast-content">
+        <div class="toast-title" id="toastTitle">МАШИНА ВЕРНУТА НА ДОРОГУ</div>
+        <div class="toast-desc" id="toastDesc">Эвакуация на безопасную полосу движения завершена</div>
       </div>
     </div>
 
@@ -129,6 +142,9 @@
       <!-- Right Thumb: Actions & Pedals -->
       <div class="touch-pedal-zone">
         <div class="touch-actions-row">
+          <button class="touch-quick-btn btn-unstuck" id="btnMobileUnstuck" title="Вернуть на дорогу" aria-label="На дорогу">
+            <span class="btn-icon">🛣️</span>
+          </button>
           <button class="touch-quick-btn btn-cam" id="btnMobileCam" title="Сменить камеру" aria-label="Камера">
             <span class="btn-icon">📷</span>
           </button>
@@ -161,6 +177,7 @@
       <div class="hint-item"><kbd>▲</kbd><kbd>▼</kbd> Газ / Тормоз / Задний ход</div>
       <div class="hint-item"><kbd>◀</kbd><kbd>▶</kbd> Руль</div>
       <div class="hint-item"><kbd>ПРОБЕЛ</kbd> Манипулятор / Выгрузка</div>
+      <div class="hint-item"><kbd>R</kbd> Вернуть на дорогу (эвакуация)</div>
       <div class="hint-item"><kbd>C</kbd> Камера (3D / Сверху / От капота)</div>
       <div class="hint-item"><kbd>H</kbd> Сигнал</div>
     </footer>
@@ -284,6 +301,13 @@
             <div>
               <strong>Доставьте мусор на завод</strong>
               <p>Когда все баки будут собраны, GPS стрелка приведет вас на Завод Утилизации. Заезжайте в зону разгрузки и нажмите <b>ПРОБЕЛ</b> или <b>ВЫГРУЗИТЬ</b> на экране!</p>
+            </div>
+          </div>
+          <div class="help-section">
+            <div class="help-step-num">4</div>
+            <div>
+              <strong>Застряли в препятствии?</strong>
+              <p>Нажмите клавишу <kbd>R</kbd> на клавиатуре или кнопку <b>🛣️ «На дорогу»</b> вверху экрана — грузовик моментально вернется на безопасную полосу движения!</p>
             </div>
           </div>
         </div>

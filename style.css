@@ -280,6 +280,121 @@ html, body {
   transform: translateY(0);
 }
 
+/* Unstuck Rescue Button */
+.unstuck-btn {
+  position: relative;
+  border-color: rgba(243, 156, 18, 0.35);
+}
+
+.unstuck-btn:hover {
+  border-color: var(--warning-amber);
+  background: rgba(243, 156, 18, 0.18);
+  box-shadow: 0 0 16px rgba(243, 156, 18, 0.45);
+}
+
+.unstuck-key-hint {
+  position: absolute;
+  bottom: 2px;
+  right: 3px;
+  font-size: 8px;
+  font-family: 'Outfit', sans-serif;
+  font-weight: 900;
+  color: #ffbe76;
+  background: rgba(0, 0, 0, 0.65);
+  padding: 0 3px;
+  border-radius: 3px;
+  border: 1px solid rgba(243, 156, 18, 0.4);
+  line-height: 1.1;
+  pointer-events: none;
+}
+
+/* Pulsing effect when truck is detected as stuck */
+.unstuck-btn.stuck-pulsing,
+.touch-quick-btn.btn-unstuck.stuck-pulsing {
+  border-color: var(--warning-amber) !important;
+  background: rgba(243, 156, 18, 0.35) !important;
+  animation: unstuckGlow 1.2s infinite ease-in-out !important;
+}
+
+@keyframes unstuckGlow {
+  0% {
+    box-shadow: 0 0 4px rgba(243, 156, 18, 0.4);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 18px rgba(243, 156, 18, 0.9), inset 0 0 8px rgba(243, 156, 18, 0.5);
+    transform: scale(1.08);
+  }
+  100% {
+    box-shadow: 0 0 4px rgba(243, 156, 18, 0.4);
+    transform: scale(1);
+  }
+}
+
+/* Toast Notification Banner */
+.toast-notification {
+  position: absolute;
+  top: 76px;
+  left: 50%;
+  transform: translateX(-50%) translateY(-25px);
+  background: rgba(18, 24, 36, 0.92);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1.5px solid rgba(243, 156, 18, 0.5);
+  border-radius: var(--radius-md);
+  padding: 10px 18px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55), 0 0 24px rgba(243, 156, 18, 0.25);
+  z-index: 100;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease, transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.toast-notification.show {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(-50%) translateY(0);
+}
+
+.toast-notification.stuck-alert {
+  border-color: #ff9f43;
+  animation: toastAlertPulse 1.8s infinite alternate ease-in-out;
+}
+
+@keyframes toastAlertPulse {
+  0% { box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55), 0 0 15px rgba(255, 159, 67, 0.3); }
+  100% { box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55), 0 0 28px rgba(255, 159, 67, 0.65); }
+}
+
+.toast-notification .toast-icon {
+  font-size: 24px;
+  line-height: 1;
+  filter: drop-shadow(0 0 6px rgba(243, 156, 18, 0.4));
+}
+
+.toast-notification .toast-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.toast-notification .toast-title {
+  font-family: 'Outfit', sans-serif;
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 0.6px;
+  color: #fff;
+}
+
+.toast-notification .toast-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
 /* Minimap Radar */
 .minimap-container {
   position: absolute;
@@ -705,6 +820,16 @@ body.touch-mode-active .gear-tag {
   border-color: var(--electric-cyan);
   background: rgba(0, 210, 211, 0.35);
   opacity: 1;
+}
+
+.touch-quick-btn.btn-unstuck {
+  border-color: rgba(243, 156, 18, 0.4);
+}
+
+.touch-quick-btn.btn-unstuck:active,
+.touch-quick-btn.btn-unstuck.pressed {
+  border-color: var(--warning-amber);
+  background: rgba(243, 156, 18, 0.38);
 }
 
 .touch-primary-action-btn {
@@ -1147,6 +1272,9 @@ body.touch-mode-active .gear-tag {
   }
   #helpBtn {
     display: none; /* Self-explanatory controls on touch */
+  }
+  .unstuck-key-hint {
+    display: none !important;
   }
   .hud-controls-hint {
     display: none !important;

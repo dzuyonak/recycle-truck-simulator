@@ -393,6 +393,52 @@ class SoundManager {
     } catch (e) {}
   }
 
+  // Truck rescue / unstuck sound effect (pneumatic air-brake hiss + harmonic chime)
+  playRescue() {
+    if (!this.isInitialized || this.isMuted) return;
+    try {
+      const now = this.ctx.currentTime;
+      // Pneumatic air pressure release
+      const bufferSize = Math.floor(this.ctx.sampleRate * 0.28);
+      const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+      const data = noiseBuffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (this.ctx.sampleRate * 0.08));
+      }
+      const noise = this.ctx.createBufferSource();
+      noise.buffer = noiseBuffer;
+      const noiseFilter = this.ctx.createBiquadFilter();
+      noiseFilter.type = 'bandpass';
+      noiseFilter.frequency.setValueAtTime(1200, now);
+      noiseFilter.Q.setValueAtTime(1.2, now);
+      const noiseGain = this.ctx.createGain();
+      noiseGain.gain.setValueAtTime(0.22, now);
+      noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+      noise.connect(noiseFilter);
+      noiseFilter.connect(noiseGain);
+      noiseGain.connect(this.ctx.destination);
+      noise.start(now);
+
+      // Pleasant ascending dual chime (C5 523Hz -> G5 784Hz)
+      const notes = [
+        { f: 523.25, time: now + 0.04, dur: 0.25 },
+        { f: 783.99, time: now + 0.14, dur: 0.32 }
+      ];
+      notes.forEach(n => {
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(n.f, n.time);
+        gain.gain.setValueAtTime(0.18, n.time);
+        gain.gain.exponentialRampToValueAtTime(0.001, n.time + n.dur);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(n.time);
+        osc.stop(n.time + n.dur + 0.02);
+      });
+    } catch (e) {}
+  }
+
   // UI button click
   playClick() {
     if (!this.isInitialized || this.isMuted) return;
