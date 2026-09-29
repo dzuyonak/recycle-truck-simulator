@@ -6,13 +6,18 @@ class SoundManager {
     this.isMuted = false;
     this.isInitialized = false;
 
-    // Motor sound nodes
+    // Motor sound nodes (velvety electric drivetrain)
     this.motorOsc = null;
     this.motorSub = null;
     this.motorGain = null;
     this.motorFilter = null;
 
-    // Reversing beeper
+    // Road friction / tire rolling sound nodes
+    this.roadNoise = null;
+    this.roadGain = null;
+    this.roadFilter = null;
+
+    // Reversing acoustic alert
     this.reverseInterval = null;
     this.isReversing = false;
 
@@ -27,18 +32,19 @@ class SoundManager {
       const AudioContext = window.AudioContext || window.webkitAudioContext;
       this.ctx = new AudioContext();
 
-      // Setup continuous electric motor sound
+      // 1. Setup continuous electric motor sound (deep, warm, non-fatiguing)
       this.motorOsc = this.ctx.createOscillator();
       this.motorSub = this.ctx.createOscillator();
       this.motorGain = this.ctx.createGain();
       this.motorFilter = this.ctx.createBiquadFilter();
 
-      this.motorOsc.type = 'sawtooth';
+      // Smooth triangle + sine instead of harsh buzzing sawtooth
+      this.motorOsc.type = 'triangle';
       this.motorSub.type = 'sine';
 
       this.motorFilter.type = 'lowpass';
-      this.motorFilter.frequency.setValueAtTime(180, this.ctx.currentTime);
-      this.motorFilter.Q.setValueAtTime(3.5, this.ctx.currentTime);
+      this.motorFilter.frequency.setValueAtTime(130, this.ctx.currentTime);
+      this.motorFilter.Q.setValueAtTime(0.8, this.ctx.currentTime); // No piercing whistle peak
 
       this.motorGain.gain.setValueAtTime(0, this.ctx.currentTime);
 
@@ -49,6 +55,32 @@ class SoundManager {
 
       this.motorOsc.start();
       this.motorSub.start();
+
+      // 2. Soft organic tire road rolling sound (filtered brown noise)
+      this.roadGain = this.ctx.createGain();
+      this.roadFilter = this.ctx.createBiquadFilter();
+      this.roadFilter.type = 'lowpass';
+      this.roadFilter.frequency.setValueAtTime(80, this.ctx.currentTime);
+      this.roadFilter.Q.setValueAtTime(0.7, this.ctx.currentTime);
+      this.roadGain.gain.setValueAtTime(0, this.ctx.currentTime);
+
+      const bufferSize = this.ctx.sampleRate * 2;
+      const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+      const data = noiseBuffer.getChannelData(0);
+      let lastOut = 0.0;
+      for (let i = 0; i < bufferSize; i++) {
+        const white = Math.random() * 2 - 1;
+        data[i] = (lastOut + 0.02 * white) / 1.02;
+        lastOut = data[i];
+        data[i] *= 3.0;
+      }
+      this.roadNoise = this.ctx.createBufferSource();
+      this.roadNoise.buffer = noiseBuffer;
+      this.roadNoise.loop = true;
+      this.roadNoise.connect(this.roadFilter);
+      this.roadFilter.connect(this.roadGain);
+      this.roadGain.connect(this.ctx.destination);
+      this.roadNoise.start();
 
       this.isInitialized = true;
     } catch (e) {
@@ -67,35 +99,43 @@ class SoundManager {
 
   toggleMute() {
     this.isMuted = !this.isMuted;
-    if (this.motorGain && this.ctx) {
+    if (this.ctx) {
       if (this.isMuted) {
-        this.motorGain.gain.setValueAtTime(0, this.ctx.currentTime);
+        if (this.motorGain) this.motorGain.gain.setValueAtTime(0, this.ctx.currentTime);
+        if (this.roadGain) this.roadGain.gain.setValueAtTime(0, this.ctx.currentTime);
       }
     }
     return this.isMuted;
   }
 
-  // Update electric motor whine according to vehicle speed (0 to 1)
+  // Update electric motor hum and road acoustics according to vehicle speed (0 to 1)
   updateMotor(speedRatio, isMoving, isReversing) {
     if (!this.isInitialized || this.isMuted) return;
 
     const t = this.ctx.currentTime;
     if (!isMoving) {
-      // Idle electric standby hum
-      this.motorOsc.frequency.setTargetAtTime(65, t, 0.1);
-      this.motorSub.frequency.setTargetAtTime(32.5, t, 0.1);
-      this.motorFilter.frequency.setTargetAtTime(140, t, 0.1);
-      this.motorGain.gain.setTargetAtTime(0.04, t, 0.1);
+      // Idle electric standby hum (warm, deep, quiet)
+      this.motorOsc.frequency.setTargetAtTime(50, t, 0.12);
+      this.motorSub.frequency.setTargetAtTime(25, t, 0.12);
+      this.motorFilter.frequency.setTargetAtTime(110, t, 0.12);
+      this.motorGain.gain.setTargetAtTime(0.018, t, 0.12);
+      if (this.roadGain) this.roadGain.gain.setTargetAtTime(0, t, 0.12);
     } else {
-      // Mack Electric drivetrain whine
-      const baseFreq = 75 + speedRatio * 260;
-      this.motorOsc.frequency.setTargetAtTime(baseFreq, t, 0.05);
-      this.motorSub.frequency.setTargetAtTime(baseFreq * 0.5, t, 0.05);
-      this.motorFilter.frequency.setTargetAtTime(220 + speedRatio * 750, t, 0.05);
-      this.motorGain.gain.setTargetAtTime(0.08 + speedRatio * 0.12, t, 0.05);
+      // Mack Electric velvety acoustic propulsion (warm baritone EV hum + tire road roll)
+      const baseFreq = 52 + speedRatio * 95; // 52Hz to 147Hz (smooth low baritone hum, zero screech)
+      this.motorOsc.frequency.setTargetAtTime(baseFreq, t, 0.08);
+      this.motorSub.frequency.setTargetAtTime(baseFreq * 0.5, t, 0.08);
+      this.motorFilter.frequency.setTargetAtTime(130 + speedRatio * 160, t, 0.08); // 130Hz to 290Hz
+      this.motorGain.gain.setTargetAtTime(0.022 + speedRatio * 0.038, t, 0.08); // Max 0.06 (pleasant & balanced)
+
+      // Tire pavement friction rises naturally with vehicle velocity
+      if (this.roadGain) {
+        this.roadFilter.frequency.setTargetAtTime(65 + speedRatio * 55, t, 0.1);
+        this.roadGain.gain.setTargetAtTime(speedRatio * 0.024, t, 0.1);
+      }
     }
 
-    // Reverse safety beeper
+    // Reverse safety acoustic alert
     if (isReversing && isMoving) {
       if (!this.isReversing) {
         this.startReverseBeeper();
@@ -115,7 +155,7 @@ class SoundManager {
       if (this.isReversing) {
         this.playBeep();
       }
-    }, 600);
+    }, 780);
   }
 
   stopReverseBeeper() {
@@ -129,16 +169,27 @@ class SoundManager {
   playBeep() {
     if (!this.isInitialized || this.isMuted) return;
     try {
+      // Modern soft acoustic sonar chime (warm sine tone, zero harsh buzzer)
       const osc = this.ctx.createOscillator();
       const gain = this.ctx.createGain();
-      osc.type = 'square';
-      osc.frequency.setValueAtTime(880, this.ctx.currentTime);
-      gain.gain.setValueAtTime(0.07, this.ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.18);
-      osc.connect(gain);
+      const filter = this.ctx.createBiquadFilter();
+
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(950, this.ctx.currentTime);
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(587.3, this.ctx.currentTime); // D5 pleasant warm chime
+
+      gain.gain.setValueAtTime(0.001, this.ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(0.032, this.ctx.currentTime + 0.018); // Soft attack, zero click
+      gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.22); // Smooth musical decay
+
+      osc.connect(filter);
+      filter.connect(gain);
       gain.connect(this.ctx.destination);
-      osc.start();
-      osc.stop(this.ctx.currentTime + 0.2);
+
+      osc.start(this.ctx.currentTime);
+      osc.stop(this.ctx.currentTime + 0.25);
     } catch (e) {}
   }
 
