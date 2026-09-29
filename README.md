@@ -95,8 +95,8 @@ npx serve .
 2. Перейдите в **Settings** репозитория ➔ вкладка **Pages**.
 3. В разделе **Build and deployment** выберите:
    * **Source**: `Deploy from a branch`
-   * **Branch**: `main` (или `master`) / folder: `/ (root)`
-4. Нажмите **Save**. Через минуту игра станет доступна по ссылке вида `https://<ваш-логин>.github.io/<имя-репозитория>/`!
+4. Нажмите **Save**. Через минуту игра станет доступна онлайн:
+   👉 **`https://dzuyonak.github.io/recycle-truck-simulator/`**
 
 ---
 
