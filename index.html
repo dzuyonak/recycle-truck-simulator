@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Эко-Мусоровоз Mack Electric — Городской Рейс</title>
+  <meta name="description" content="Управляйте электрическим мусоровозом Mack Electric, собирайте контейнеры с мусором механической клешней и везите вторсырье на завод по переработке!">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800;900&family=Rubik:wght@400;500;700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <!-- Three.js 3D Engine -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+  <div id="game-container">
+    <!-- Main Game Canvas -->
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- Top Navigation & Status Bar -->
+    <header class="hud-top">
+      <div class="hud-card brand-card">
+        <div class="brand-logo">
+          <span class="brand-bolt">⚡</span>
+          <div class="brand-text">
+            <span class="brand-title">MACK LR ELECTRIC</span>
+            <span class="brand-subtitle">RECYCLE TRUCK</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Current Objective -->
+      <div class="hud-card task-card" id="taskCard">
+        <div class="task-icon" id="taskIcon">🗑️</div>
+        <div class="task-details">
+          <div class="task-label">ТЕКУЩАЯ ЗАДАЧА</div>
+          <div class="task-text" id="taskText">Соберите контейнеры на улицах города</div>
+        </div>
+        <div class="gps-pointer" id="gpsPointer" title="Направление к цели">
+          <div class="gps-arrow" id="gpsArrow">▲</div>
+          <div class="gps-distance" id="gpsDistance">45м</div>
+        </div>
+      </div>
+
+      <!-- Capacity & Stats -->
+      <div class="hud-card stats-card">
+        <div class="stat-group">
+          <div class="stat-header">
+            <span>ЗАПОЛНЕНИЕ КУЗОВА</span>
+            <span class="stat-value" id="capacityVal">0 / 8 баков</span>
+          </div>
+          <div class="progress-bar-bg">
+            <div class="progress-bar-fill" id="capacityBar" style="width: 0%"></div>
+          </div>
+        </div>
+        <div class="eco-score-badge">
+          <span class="eco-icon">🌱</span>
+          <span id="ecoScore">0 кг сырья</span>
+        </div>
+      </div>
+
+      <!-- Audio / Camera / Help buttons -->
+      <div class="hud-controls-group">
+        <button id="touchToggleBtn" class="hud-btn" title="Сенсорные кнопки на экране" aria-label="Сенсорное управление">
+          <span id="touchToggleIcon">📱</span>
+        </button>
+        <button id="camBtn" class="hud-btn" title="Сменить вид камеры [C]" aria-label="Сменить вид камеры">
+          <span id="camIcon">🎥</span>
+        </button>
+        <button id="soundBtn" class="hud-btn" title="Вкл/Выкл Звук" aria-label="Включить звук">
+          <span id="soundIcon">🔊</span>
+        </button>
+        <button id="helpBtn" class="hud-btn" title="Справка" aria-label="Справка">
+          <span>❓</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Minimap Radar (Top Right) -->
+    <div class="minimap-container" id="minimapContainer">
+      <canvas id="minimapCanvas" width="180" height="180"></canvas>
+      <div class="minimap-legend">
+        <span><i class="dot truck-dot"></i> Вы</span>
+        <span><i class="dot bin-dot"></i> Бак</span>
+        <span><i class="dot plant-dot"></i> Завод</span>
+      </div>
+    </div>
+
+    <!-- Interactive Prompt (Center Bottom) -->
+    <div class="action-prompt" id="actionPrompt">
+      <div class="prompt-icon">⚡</div>
+      <div class="prompt-content">
+        <div class="prompt-title" id="promptTitle">КОНТЕЙНЕР РЯДОМ!</div>
+        <div class="prompt-desc" id="promptDesc">Нажмите <kbd>ПРОБЕЛ</kbd> для захвата манипулятором</div>
+      </div>
+      <button class="prompt-action-btn" id="promptActionBtn">ЗАБРАТЬ</button>
+    </div>
+
+    <!-- Bottom Left Speed & Dashboard -->
+    <div class="hud-bottom-left">
+      <div class="speedometer-card">
+        <div class="speed-value" id="speedValue">0</div>
+        <div class="speed-unit">КМ/Ч</div>
+        <div class="gear-tag" id="gearTag">P</div>
+      </div>
+      <div class="hydraulic-status" id="hydraulicStatus">
+        <span class="status-indicator" id="armIndicator"></span>
+        <span id="armStatusText">МАНИПУЛЯТОР ГОТОВ</span>
+      </div>
+    </div>
+
+    <!-- On-screen Controls for Touch / Mobile / Tablet -->
+    <div class="mobile-controls" id="mobileControls">
+      <!-- Left Thumb: Steering Cluster -->
+      <div class="touch-steer-zone">
+        <div class="touch-cluster-title">РУЛЕВОЕ УПРАВЛЕНИЕ</div>
+        <div class="touch-steer-buttons">
+          <button class="touch-steer-btn btn-steer-left" id="btnLeft" aria-label="Влево">
+            <span class="steer-arrow">◀</span>
+            <span class="steer-label">ВЛЕВО</span>
+          </button>
+          <button class="touch-steer-btn btn-steer-right" id="btnRight" aria-label="Вправо">
+            <span class="steer-label">ВПРАВО</span>
+            <span class="steer-arrow">▶</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Right Thumb: Actions & Pedals -->
+      <div class="touch-pedal-zone">
+        <div class="touch-actions-row">
+          <button class="touch-quick-btn btn-cam" id="btnMobileCam" title="Сменить камеру" aria-label="Камера">
+            <span class="btn-icon">📷</span>
+          </button>
+          <button class="touch-quick-btn btn-horn" id="btnHornAction" title="Посигналить" aria-label="Сигнал">
+            <span class="btn-icon">📢</span>
+          </button>
+          <button class="touch-primary-action-btn btn-grab" id="btnGrabAction" aria-label="Захват манипулятором">
+            <span class="btn-icon" id="grabBtnIcon">🦾</span>
+            <span class="btn-text" id="grabBtnText">ЗАХВАТ</span>
+          </button>
+        </div>
+
+        <div class="touch-pedals-cluster">
+          <button class="touch-pedal-btn btn-brake" id="btnDown" aria-label="Тормоз / Реверс">
+            <div class="pedal-ribs"><span></span><span></span><span></span></div>
+            <span class="pedal-icon">🛑</span>
+            <span class="pedal-name">ТОРМОЗ / РЕВЕРС</span>
+          </button>
+          <button class="touch-pedal-btn btn-gas" id="btnUp" aria-label="Газ / Вперед">
+            <div class="pedal-ribs"><span></span><span></span><span></span></div>
+            <span class="pedal-icon">⚡</span>
+            <span class="pedal-name">ГАЗ</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Controls Helper Overlay (Bottom Bar) -->
+    <footer class="hud-controls-hint">
+      <div class="hint-item"><kbd>▲</kbd><kbd>▼</kbd> Газ / Тормоз / Задний ход</div>
+      <div class="hint-item"><kbd>◀</kbd><kbd>▶</kbd> Руль</div>
+      <div class="hint-item"><kbd>ПРОБЕЛ</kbd> Манипулятор / Выгрузка</div>
+      <div class="hint-item"><kbd>C</kbd> Камера (3D / Сверху / От капота)</div>
+      <div class="hint-item"><kbd>H</kbd> Сигнал</div>
+    </footer>
+
+    <!-- Trash Pickup Cutscene Overlay (Заглушка с анимацией забора контейнера) -->
+    <div class="pickup-overlay" id="pickupOverlay">
+      <div class="pickup-window">
+        <div class="pickup-header">
+          <div class="rec-indicator"><span class="rec-dot"></span> REC • БОРТОВАЯ КАМЕРА ЗАГРУЗКИ MACK EV</div>
+          <div class="pickup-telemetry" id="pickupTelemetry">ГИДРАВЛИКА: 240 BAR | ДАТЧИКИ: ОК</div>
+        </div>
+        <div class="pickup-canvas-wrapper">
+          <video id="pickupVideo" playsinline muted style="display: none; width: 100%; height: 100%; object-fit: cover;"></video>
+          <canvas id="pickupCanvas" width="640" height="360"></canvas>
+          <div class="scanlines"></div>
+          <div class="pickup-status-overlay">
+            <span class="pickup-status-text" id="pickupStatusText">ЗАХВАТ КОНТЕЙНЕРА...</span>
+          </div>
+        </div>
+        <div class="pickup-footer">
+          <div class="pickup-gauge">
+            <span class="gauge-label">МАССА ВТОРСЫРЬЯ:</span>
+            <span class="gauge-val" id="pickupWeightVal">+120 КГ</span>
+          </div>
+          <div class="pickup-skip-hint">Нажмите <kbd>ПРОБЕЛ</kbd> или кликните для ускорения</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Factory Unload Cutscene Overlay (Анимация выгрузки вторсырья на эко-заводе) -->
+    <div class="pickup-overlay unload-overlay" id="unloadOverlay">
+      <div class="pickup-window unload-window">
+        <div class="pickup-header unload-header">
+          <div class="rec-indicator"><span class="rec-dot green-dot"></span> REC • ПРИЕМНЫЙ ШЛЮЗ ЭКО-ЗАВОДА RECYCLE ♻️</div>
+          <div class="pickup-telemetry green-telemetry" id="unloadTelemetry">ПРИЕМНЫЙ БУНКЕР #1 | ДАТЧИКИ: АКТИВНЫ</div>
+        </div>
+        <div class="pickup-canvas-wrapper">
+          <canvas id="unloadCanvas" width="640" height="360"></canvas>
+          <div class="scanlines"></div>
+          <div class="pickup-status-overlay">
+            <span class="pickup-status-text unload-status-badge" id="unloadStatusText">ВЫГРУЗКА ВТОРСЫРЬЯ...</span>
+          </div>
+        </div>
+        <div class="pickup-footer unload-footer">
+          <div class="pickup-gauge">
+            <span class="gauge-label">СДАЧА НА ПЕРЕРАБОТКУ:</span>
+            <span class="gauge-val green-val" id="unloadWeightVal">960 КГ</span>
+          </div>
+          <div class="pickup-skip-hint">Нажмите <kbd>ПРОБЕЛ</kbd> или кликните для ускорения</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Victory / Mission Complete Modal -->
+    <div class="modal-backdrop" id="victoryModal">
+      <div class="modal-card">
+        <div class="modal-header">
+          <div class="trophy-badge">🏆</div>
+          <h2 class="modal-title">РЕЙС УСПЕШНО ЗАВЕРШЕН!</h2>
+          <p class="modal-subtitle">Все улицы очищены, а вторсырье доставлено на переработку</p>
+        </div>
+
+        <div class="results-grid">
+          <div class="result-box">
+            <div class="result-number" id="resBinsCount">8</div>
+            <div class="result-label">Контейнеров собрано</div>
+          </div>
+          <div class="result-box">
+            <div class="result-number" id="resWeight">960 кг</div>
+            <div class="result-label">Переработано мусора</div>
+          </div>
+          <div class="result-box">
+            <div class="result-number" id="resTime">01:45</div>
+            <div class="result-label">Время на маршруте</div>
+          </div>
+          <div class="result-box eco-box">
+            <div class="result-number" id="resEcoCO2">~14.2 кг</div>
+            <div class="result-label">Сэкономлено CO₂</div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button class="btn-primary" id="btnRestartLevel">
+            <span>🔄 НОВЫЙ МАРШРУТ</span>
+          </button>
+          <button class="btn-secondary" id="btnFreeDrive">
+            <span>🛣️ СВОБОДНАЯ ЕЗДА</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Help / Info Modal -->
+    <div class="modal-backdrop" id="helpModal">
+      <div class="modal-card help-card">
+        <button class="modal-close" id="helpCloseBtn">✕</button>
+        <h2>Как играть: Mack Electric Recycle Truck</h2>
+        <div class="help-content">
+          <div class="help-section">
+            <div class="help-step-num">1</div>
+            <div>
+              <strong>Ездите по улицам города</strong>
+              <p>Используйте стрелочки на клавиатуре или кнопки на экране, чтобы объезжать кварталы.</p>
+            </div>
+          </div>
+          <div class="help-section">
+            <div class="help-step-num">2</div>
+            <div>
+              <strong>Забирайте мусорные баки</strong>
+              <p>Подъезжайте к баку правым бортом. Нажмите <b>ПРОБЕЛ</b> или большую зеленую кнопку <b>ЗАБРАТЬ</b> на экране — откроется окно бортовой камеры забора вторсырья!</p>
+            </div>
+          </div>
+          <div class="help-section">
+            <div class="help-step-num">3</div>
+            <div>
+              <strong>Доставьте мусор на завод</strong>
+              <p>Когда все баки будут собраны, GPS стрелка приведет вас на Завод Утилизации. Заезжайте в зону разгрузки и нажмите <b>ПРОБЕЛ</b> или <b>ВЫГРУЗИТЬ</b> на экране!</p>
+            </div>
+          </div>
+        </div>
+        <button class="btn-primary full-width" id="helpOkBtn">ПОНЯТНО, ПОЕХАЛИ!</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Audio and Game Logic Scripts -->
+  <script src="audio.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
