@@ -5,10 +5,13 @@
 [![HTML5](https://img.shields.io/badge/HTML5-E34F26?style=for-the-badge&logo=html5&logoColor=white)](https://developer.mozilla.org/ru/docs/Web/HTML)
 [![CSS3](https://img.shields.io/badge/CSS3-1572B6?style=for-the-badge&logo=css3&logoColor=white)](https://developer.mozilla.org/ru/docs/Web/CSS)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
+[![Vibecoding](https://img.shields.io/badge/Crafted_with-Vibecoding-FF69B4?style=for-the-badge&logo=visualstudiocode&logoColor=white)](https://github.com/dzuyonak/recycle-truck-simulator)
 
 🎮 **[Играть онлайн (Live Demo)](https://dzuyonak.github.io/recycle-truck-simulator/)**
 
 Браузерная 3D-игра в ярком стиле **LEGO**, в которой вы управляете современным электрическим мусоровозом **Mack LR Electric**. Собирайте контейнеры с раздельным мусором на улицах города, прессуйте вторсырье и доставляйте его на завод по переработке!
+
+> ⚡ **Vibecoding Experiment**: проект полностью разработан методом вайбкодинга с помощью AI в среде Cursor — от математики физики подвески и логистики смены до процедурного Web Audio и рендеринга Three.js.
 
 ---
 
