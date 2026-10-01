@@ -201,19 +201,31 @@ html, body {
   gap: 4px;
 }
 
-.stat-header {
+/* Two-line shift/hopper readout (label + value per row) */
+.stat-row {
   display: flex;
   justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
   font-size: 10px;
   font-weight: 700;
-  color: var(--text-muted);
   letter-spacing: 0.5px;
+}
+
+.stat-label {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .stat-value {
   color: #fff;
   font-family: 'Outfit', monospace;
   font-weight: 800;
+  white-space: nowrap;
 }
 
 .progress-bar-bg {
@@ -231,6 +243,20 @@ html, body {
   transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* Overall shift progress bar — cyan accent to distinguish it from the
+   hopper-load bar below it. */
+.progress-bar-fill.shift-fill {
+  background: linear-gradient(90deg, #3498db, var(--electric-cyan));
+  box-shadow: 0 0 10px rgba(0, 210, 211, 0.4);
+}
+
+.hud-badge-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
 .eco-score-badge {
   display: flex;
   align-items: center;
@@ -243,6 +269,13 @@ html, body {
   font-weight: 700;
   color: var(--accent-green);
   white-space: nowrap;
+}
+
+/* Personal best route time shown in the persistent HUD */
+.best-time-badge {
+  background: rgba(241, 196, 15, 0.14);
+  border-color: rgba(241, 196, 15, 0.35);
+  color: #f1c40f;
 }
 
 /* Control buttons (Sound, Help) */
@@ -347,7 +380,7 @@ html, body {
   align-items: center;
   gap: 12px;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55), 0 0 24px rgba(243, 156, 18, 0.25);
-  z-index: 100;
+  z-index: 140;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.25s ease, transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
@@ -447,6 +480,7 @@ html, body {
 .truck-dot { background: #3498db; box-shadow: 0 0 6px #3498db; }
 .bin-dot { background: #2ecc71; box-shadow: 0 0 6px #2ecc71; }
 .plant-dot { background: #e67e22; box-shadow: 0 0 6px #e67e22; }
+.charge-dot { background: #00d2d3; box-shadow: 0 0 8px #00d2d3; }
 
 /* Interactive Prompt (Center Bottom) */
 .action-prompt {
@@ -547,11 +581,18 @@ html, body {
   -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid var(--panel-border);
   border-radius: var(--radius-md);
-  padding: 10px 18px;
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  box-shadow: var(--shadow-lg);
+  min-width: 280px;
+}
+
+.speed-cluster {
   display: flex;
   align-items: baseline;
-  gap: 8px;
-  box-shadow: var(--shadow-lg);
+  gap: 6px;
 }
 
 .speed-value {
@@ -560,24 +601,245 @@ html, body {
   font-weight: 900;
   line-height: 1;
   color: #fff;
-  min-width: 48px;
+  min-width: 44px;
+}
+
+.speed-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
 }
 
 .speed-unit {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   color: var(--text-muted);
+  line-height: 1;
 }
 
 .gear-tag {
   background: rgba(0, 210, 211, 0.2);
   color: var(--electric-cyan);
   border: 1px solid var(--electric-cyan);
-  padding: 2px 8px;
-  border-radius: 6px;
+  padding: 1px 6px;
+  border-radius: 5px;
   font-weight: 800;
+  font-size: 11px;
+  line-height: 1.1;
+  text-align: center;
+}
+
+.ev-telemetry-divider {
+  width: 1px;
+  height: 42px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.ev-energy-cluster {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.battery-status-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.battery-label-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+}
+
+.battery-icon {
   font-size: 13px;
-  margin-left: 6px;
+}
+
+.battery-percent {
+  color: var(--accent-green);
+  font-family: 'Outfit', sans-serif;
+  font-weight: 800;
+}
+
+.battery-percent.low {
+  color: var(--warning-amber);
+}
+
+.battery-percent.critical {
+  color: var(--danger-red);
+  animation: pulseCritical 0.6s infinite alternate;
+}
+
+@keyframes pulseCritical {
+  0% { opacity: 0.5; }
+  100% { opacity: 1; }
+}
+
+.battery-progress-bg {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.battery-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-green), var(--electric-cyan));
+  border-radius: 3px;
+  transition: width 0.3s ease;
+  box-shadow: 0 0 8px var(--accent-green-glow);
+}
+
+.battery-progress-fill.low {
+  background: linear-gradient(90deg, #e67e22, var(--warning-amber));
+}
+
+.battery-progress-fill.critical {
+  background: var(--danger-red);
+  box-shadow: 0 0 10px rgba(231, 76, 60, 0.7);
+}
+
+/* Dynamic Power / Charge Flow Meter */
+.power-meter-container {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 2px;
+}
+
+.power-meter-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+}
+
+.meter-charge-tag {
+  color: var(--accent-green);
+}
+
+.meter-power-tag {
+  color: var(--electric-cyan);
+}
+
+.meter-flow-val {
+  color: #fff;
+  font-family: 'Outfit', monospace;
+  font-size: 10px;
+}
+
+.power-track {
+  position: relative;
+  width: 100%;
+  height: 5px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.power-center-tick {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: rgba(255, 255, 255, 0.3);
+  transform: translateX(-50%);
+  z-index: 2;
+}
+
+.power-flow-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 0%;
+  transition: width 0.08s ease, left 0.08s ease, background 0.15s ease;
+  border-radius: 2px;
+}
+
+.power-flow-bar.charge {
+  background: linear-gradient(90deg, #27ae60, var(--accent-green));
+  box-shadow: 0 0 8px var(--accent-green-glow);
+}
+
+.power-flow-bar.power {
+  background: linear-gradient(90deg, var(--electric-cyan), #3498db);
+  box-shadow: 0 0 8px var(--electric-glow);
+}
+
+/* Live charging-pad status readout (visible only while charging) */
+.charging-status {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  background: rgba(46, 204, 113, 0.14);
+  border: 1px solid var(--accent-green);
+  box-shadow: 0 0 12px var(--accent-green-glow);
+  font-family: 'Outfit', monospace;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  color: var(--accent-green);
+  white-space: nowrap;
+}
+
+.charging-status.show {
+  display: flex;
+  animation: chargingPulse 1.2s infinite ease-in-out;
+}
+
+.charging-status-icon {
+  font-size: 12px;
+  filter: drop-shadow(0 0 6px var(--accent-green-glow));
+}
+
+@keyframes chargingPulse {
+  0%, 100% { box-shadow: 0 0 12px var(--accent-green-glow); }
+  50% { box-shadow: 0 0 22px var(--accent-green); }
+}
+
+.dashboard-secondary-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.cargo-mass-card {
+  background: var(--panel-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.cargo-icon {
+  font-size: 12px;
+}
+
+.cargo-text {
+  color: var(--text-main);
+  font-family: 'Outfit', sans-serif;
+  font-weight: 700;
 }
 
 .hydraulic-status {
@@ -681,17 +943,20 @@ body.touch-mode-active .hud-bottom-left {
 }
 
 body.touch-mode-active .speedometer-card {
-  padding: 3px 8px;
-  gap: 5px;
-  background: rgba(15, 23, 42, 0.45);
+  padding: 4px 10px;
+  gap: 8px;
+  background: rgba(15, 23, 42, 0.55);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 12px;
+  min-width: unset;
+  max-width: 220px;
 }
 
 body.touch-mode-active .speed-value {
-  font-size: 18px;
+  font-size: 20px;
+  min-width: 26px;
 }
 
 body.touch-mode-active .speed-unit {
@@ -699,8 +964,25 @@ body.touch-mode-active .speed-unit {
 }
 
 body.touch-mode-active .gear-tag {
-  font-size: 10px;
-  padding: 1px 5px;
+  font-size: 9px;
+  padding: 1px 4px;
+}
+
+body.touch-mode-active .ev-telemetry-divider {
+  height: 28px;
+}
+
+body.touch-mode-active .battery-status-row {
+  font-size: 9px;
+}
+
+body.touch-mode-active .power-meter-header {
+  font-size: 8px;
+}
+
+body.touch-mode-active .cargo-mass-card {
+  font-size: 9px;
+  padding: 3px 8px;
 }
 
 .hud-btn.active {
@@ -1016,6 +1298,9 @@ body.touch-mode-active .gear-tag {
   padding: 36px 40px;
   max-width: 540px;
   width: 90%;
+  /* Keep long content (breakdown + history) reachable on short screens */
+  max-height: 92vh;
+  overflow-y: auto;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
   text-align: center;
   animation: modalPop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
@@ -1245,11 +1530,19 @@ body.touch-mode-active .gear-tag {
     background: rgba(15, 23, 42, 0.65);
     border-radius: 20px;
   }
-  .stat-header span:first-child {
-    display: none; /* Hide verbose "ЗАПОЛНЕНИЕ КУЗОВА" */
+  .stat-group {
+    gap: 2px;
+  }
+  .stat-row {
+    font-size: 10px;
+    gap: 6px;
+  }
+  .stat-label {
+    font-size: 9px;
+    letter-spacing: 0.2px;
   }
   .progress-bar-bg {
-    display: none; /* Keep clean numerical badge */
+    display: none; /* Keep clean numerical readout */
   }
   .stat-value {
     font-size: 12px;
@@ -1776,4 +2069,370 @@ body.touch-mode-active .gear-tag {
     padding: 3px 8px;
     font-size: 10px;
   }
+}
+
+/* ==========================================================================
+   Modernized Systems: Waste Sorting Badges & Career Meta-Progression
+   ========================================================================== */
+
+/* Pickup Camera Waste Recognition Badge */
+.pickup-category-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 14px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  color: #fff;
+  transition: all 0.2s ease;
+}
+
+.pickup-category-badge.cat-yellow {
+  border-color: #f1c40f;
+  background: rgba(241, 196, 15, 0.16);
+  box-shadow: 0 0 10px rgba(241, 196, 15, 0.35);
+}
+
+.pickup-category-badge.cat-blue {
+  border-color: #3498db;
+  background: rgba(52, 152, 219, 0.16);
+  box-shadow: 0 0 10px rgba(52, 152, 219, 0.35);
+}
+
+.pickup-category-badge.cat-green {
+  border-color: #2ecc71;
+  background: rgba(46, 204, 113, 0.16);
+  box-shadow: 0 0 10px rgba(46, 204, 113, 0.35);
+}
+
+/* Modal Sections */
+.modal-section-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: 'Outfit', sans-serif;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  margin-top: 14px;
+  margin-bottom: 10px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.new-record-pill {
+  background: linear-gradient(135deg, #f1c40f, #e67e22);
+  color: #1a1a1a;
+  font-size: 10px;
+  font-weight: 900;
+  padding: 2px 8px;
+  border-radius: 10px;
+  box-shadow: 0 0 12px rgba(241, 196, 15, 0.6);
+  animation: pulsePill 0.8s infinite alternate;
+}
+
+@keyframes pulsePill {
+  0% { transform: scale(0.95); }
+  100% { transform: scale(1.05); }
+}
+
+.sorting-breakdown-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.sort-badge-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.sort-badge-card.sort-yellow { border-left: 3px solid #f1c40f; }
+.sort-badge-card.sort-blue { border-left: 3px solid #3498db; }
+.sort-badge-card.sort-green { border-left: 3px solid #2ecc71; }
+
+.sort-badge-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.sort-badge-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.sort-badge-title {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+  line-height: 1.2;
+}
+
+.sort-badge-val {
+  font-family: 'Outfit', sans-serif;
+  font-size: 12px;
+  font-weight: 800;
+  color: #fff;
+}
+
+.records-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.record-box {
+  background: rgba(0, 210, 211, 0.05);
+  border: 1px solid rgba(0, 210, 211, 0.15);
+  border-radius: var(--radius-sm);
+  padding: 10px 8px;
+  text-align: center;
+}
+
+.record-val {
+  font-family: 'Outfit', monospace;
+  font-size: 18px;
+  font-weight: 900;
+  color: #fff;
+  margin-bottom: 2px;
+}
+
+.record-val.highlight {
+  color: var(--electric-cyan);
+  text-shadow: 0 0 10px var(--electric-glow);
+}
+
+.record-lbl {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+/* Route History Log (LocalStorage) */
+.history-hint {
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 190px;
+  overflow-y: auto;
+  margin-bottom: 20px;
+  padding-right: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
+.history-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.history-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+
+.history-empty {
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 18px 10px;
+  border: 1px dashed rgba(255, 255, 255, 0.15);
+  border-radius: var(--radius-sm);
+  line-height: 1.5;
+}
+
+.history-row {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-left: 3px solid var(--electric-cyan);
+  border-radius: var(--radius-sm);
+  padding: 7px 10px;
+}
+
+.history-row-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.history-index {
+  font-family: 'Outfit', sans-serif;
+  font-size: 11px;
+  font-weight: 900;
+  color: var(--electric-cyan);
+}
+
+.history-date {
+  flex: 1;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.history-time {
+  font-family: 'Outfit', monospace;
+  font-size: 13px;
+  font-weight: 900;
+  color: #fff;
+}
+
+.history-row-body {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.history-mat {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.mat-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.mat-yellow { background: #f1c40f; box-shadow: 0 0 6px rgba(241, 196, 15, 0.7); }
+.mat-blue { background: #3498db; box-shadow: 0 0 6px rgba(52, 152, 219, 0.7); }
+.mat-green { background: #2ecc71; box-shadow: 0 0 6px rgba(46, 204, 113, 0.7); }
+
+@media (max-width: 640px) {
+  .sorting-breakdown-grid {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  .records-grid {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  .speedometer-card {
+    min-width: 200px;
+    padding: 6px 10px;
+    gap: 8px;
+  }
+  .ev-energy-cluster {
+    min-width: 120px;
+  }
+}
+
+/* ==========================================================================
+   Battery Depletion Blackout — Эвакуация при 0% заряда
+   ========================================================================== */
+.battery-blackout {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 130;
+  opacity: 0;
+  pointer-events: none;
+  /* Smooth fade-to-black: 0.8s as required by the evacuation spec. */
+  transition: opacity 0.8s ease;
+}
+
+.battery-blackout.show {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.battery-blackout-inner {
+  text-align: center;
+  font-family: 'Outfit', monospace;
+  color: #f5f6fa;
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 0.55s ease 0.2s, transform 0.55s ease 0.2s;
+}
+
+.battery-blackout.show .battery-blackout-inner {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.battery-blackout-icon {
+  font-size: 64px;
+  line-height: 1;
+  margin-bottom: 14px;
+  filter: drop-shadow(0 0 18px rgba(231, 76, 60, 0.6));
+}
+
+.battery-blackout-title {
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: 3px;
+  color: #e74c3c;
+  text-shadow: 0 0 18px rgba(231, 76, 60, 0.5);
+}
+
+.battery-blackout-sub {
+  margin-top: 8px;
+  font-size: 14px;
+  letter-spacing: 1px;
+  color: #95a5a6;
+}
+
+.battery-blackout-progress {
+  margin: 22px auto 0;
+  width: 220px;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.battery-blackout-progress span {
+  display: block;
+  width: 0;
+  height: 100%;
+  background: linear-gradient(90deg, #e74c3c, #f39c12, #2ecc71);
+  transition: width 2.5s linear;
+}
+
+.battery-blackout.show .battery-blackout-progress span {
+  width: 100%;
+}
+
+/* ==========================================================================
+   Low Battery Alert — пульсация критического заряда (≤15%)
+   ========================================================================== */
+@keyframes criticalPulse {
+  0%, 100% { opacity: 1; filter: drop-shadow(0 0 6px rgba(231, 76, 60, 0.8)); }
+  50% { opacity: 0.45; }
+}
+
+.battery-critical-pulse {
+  animation: criticalPulse 0.9s infinite ease-in-out;
+  color: #e74c3c !important;
 }

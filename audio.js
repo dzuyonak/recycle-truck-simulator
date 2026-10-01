@@ -108,8 +108,8 @@ class SoundManager {
     return this.isMuted;
   }
 
-  // Update electric motor hum and road acoustics according to vehicle speed (0 to 1)
-  updateMotor(speedRatio, isMoving, isReversing) {
+  // Update electric motor hum and road acoustics according to vehicle speed (0 to 1) and EV power flow
+  updateMotor(speedRatio, isMoving, isReversing, powerFlow = 0) {
     if (!this.isInitialized || this.isMuted) return;
 
     const t = this.ctx.currentTime;
@@ -122,11 +122,16 @@ class SoundManager {
       if (this.roadGain) this.roadGain.gain.setTargetAtTime(0, t, 0.12);
     } else {
       // Mack Electric velvety acoustic propulsion (warm baritone EV hum + tire road roll)
-      const baseFreq = 52 + speedRatio * 95; // 52Hz to 147Hz (smooth low baritone hum, zero screech)
+      // Modulate frequency slightly higher under heavy acceleration or regen braking
+      const isRegen = (powerFlow < -15);
+      const regenBoost = isRegen ? 22 : 0;
+      const baseFreq = 52 + speedRatio * 95 + regenBoost;
       this.motorOsc.frequency.setTargetAtTime(baseFreq, t, 0.08);
       this.motorSub.frequency.setTargetAtTime(baseFreq * 0.5, t, 0.08);
-      this.motorFilter.frequency.setTargetAtTime(130 + speedRatio * 160, t, 0.08); // 130Hz to 290Hz
-      this.motorGain.gain.setTargetAtTime(0.022 + speedRatio * 0.038, t, 0.08); // Max 0.06 (pleasant & balanced)
+
+      const filterFreq = isRegen ? (180 + speedRatio * 180) : (130 + speedRatio * 160);
+      this.motorFilter.frequency.setTargetAtTime(filterFreq, t, 0.08);
+      this.motorGain.gain.setTargetAtTime(0.022 + speedRatio * 0.038 + (isRegen ? 0.012 : 0), t, 0.08);
 
       // Tire pavement friction rises naturally with vehicle velocity
       if (this.roadGain) {
@@ -439,6 +444,103 @@ class SoundManager {
     } catch (e) {}
   }
 
+  // Vehicle Collision / Crash Impact Sound
+  playCrash() {
+    if (!this.isInitialized || this.isMuted) return;
+    try {
+      const t = this.ctx.currentTime;
+      // 1. Low impact punch oscillator
+      const osc = this.ctx.createOscillator();
+      const oscGain = this.ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(140, t);
+      osc.frequency.exponentialRampToValueAtTime(32, t + 0.32);
+
+      oscGain.gain.setValueAtTime(0.28, t);
+      oscGain.gain.exponentialRampToValueAtTime(0.001, t + 0.32);
+
+      osc.connect(oscGain);
+      oscGain.connect(this.ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.35);
+
+      // 2. Metallic crunch noise burst
+      const bufSize = Math.floor(this.ctx.sampleRate * 0.25);
+      const buffer = this.ctx.createBuffer(1, bufSize, this.ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufSize; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (this.ctx.sampleRate * 0.05));
+      }
+      const noise = this.ctx.createBufferSource();
+      noise.buffer = buffer;
+      const noiseFilter = this.ctx.createBiquadFilter();
+      noiseFilter.type = 'bandpass';
+      noiseFilter.frequency.setValueAtTime(900, t);
+      noiseFilter.Q.setValueAtTime(2.0, t);
+
+      const noiseGain = this.ctx.createGain();
+      noiseGain.gain.setValueAtTime(0.24, t);
+      noiseGain.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+
+      noise.connect(noiseFilter);
+      noiseFilter.connect(noiseGain);
+      noiseGain.connect(this.ctx.destination);
+      noise.start(t);
+    } catch (e) {}
+  }
+
+  // Traffic Violation / Penalty Alert Sound (Descending double electronic beep)
+  playPenalty() {
+    if (!this.isInitialized || this.isMuted) return;
+    try {
+      const t = this.ctx.currentTime;
+      [
+        { f: 520, start: t, dur: 0.12 },
+        { f: 380, start: t + 0.14, dur: 0.22 }
+      ].forEach(item => {
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(item.f, item.start);
+
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(1400, item.start);
+
+        gain.gain.setValueAtTime(0.12, item.start);
+        gain.gain.exponentialRampToValueAtTime(0.001, item.start + item.dur);
+
+        osc.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(item.start);
+        osc.stop(item.start + item.dur + 0.02);
+      });
+    } catch (e) {}
+  }
+
+  // EV Rapid Charging Station Pad Sound (Ascending harmonic pulse)
+  playCharging() {
+    if (!this.isInitialized || this.isMuted) return;
+    try {
+      const t = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(320, t);
+      osc.frequency.linearRampToValueAtTime(640, t + 0.35);
+
+      gain.gain.setValueAtTime(0.01, t);
+      gain.gain.linearRampToValueAtTime(0.08, t + 0.15);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.42);
+    } catch (e) {}
+  }
+
   // UI button click
   playClick() {
     if (!this.isInitialized || this.isMuted) return;
@@ -454,6 +556,33 @@ class SoundManager {
       gain.connect(this.ctx.destination);
       osc.start();
       osc.stop(this.ctx.currentTime + 0.06);
+    } catch (e) {}
+  }
+
+  // Low Battery Warning — double short buzzer (two ~1046 Hz / 1174 Hz beeps)
+  playWarningBeep() {
+    if (!this.isInitialized || this.isMuted) return;
+    try {
+      // Two short square-wave beeps, the second one slightly higher for urgency.
+      const beeps = [
+        { freq: 1046.5, start: 0.00, dur: 0.14 }, // C6
+        { freq: 1174.7, start: 0.22, dur: 0.16 }  // D6
+      ];
+      beeps.forEach(b => {
+        const t = this.ctx.currentTime + b.start;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(b.freq, t);
+        // Punchy attack, quick decay to avoid a harsh click at the tail.
+        gain.gain.setValueAtTime(0.0001, t);
+        gain.gain.linearRampToValueAtTime(0.09, t + 0.012);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + b.dur);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(t);
+        osc.stop(t + b.dur + 0.02);
+      });
     } catch (e) {}
   }
 }

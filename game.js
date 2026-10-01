@@ -9,8 +9,10 @@
   const taskIcon = document.getElementById('taskIcon');
   const gpsArrow = document.getElementById('gpsArrow');
   const gpsDistance = document.getElementById('gpsDistance');
-  const capacityVal = document.getElementById('capacityVal');
   const capacityBar = document.getElementById('capacityBar');
+  const shiftProgressVal = document.getElementById('shiftProgressVal');
+  const shiftProgressBar = document.getElementById('shiftProgressBar');
+  const cargoFillVal = document.getElementById('cargoFillVal');
   const ecoScore = document.getElementById('ecoScore');
   const speedValue = document.getElementById('speedValue');
   const gearTag = document.getElementById('gearTag');
@@ -30,6 +32,7 @@
   const toastIcon = document.getElementById('toastIcon');
   const toastTitle = document.getElementById('toastTitle');
   const toastDesc = document.getElementById('toastDesc');
+  const batteryBlackout = document.getElementById('batteryBlackout');
   const helpModal = document.getElementById('helpModal');
   const helpCloseBtn = document.getElementById('helpCloseBtn');
   const helpOkBtn = document.getElementById('helpOkBtn');
@@ -52,6 +55,42 @@
   const unloadStatusText = document.getElementById('unloadStatusText');
   const unloadTelemetry = document.getElementById('unloadTelemetry');
   const unloadWeightVal = document.getElementById('unloadWeightVal');
+
+  // Modernized UI: EV Cluster, Sorting Badges, Career Records
+  const recordsBtn = document.getElementById('recordsBtn');
+  const recordsModal = document.getElementById('recordsModal');
+  const recordsCloseBtn = document.getElementById('recordsCloseBtn');
+  const recordsOkBtn = document.getElementById('recordsOkBtn');
+
+  const batteryIcon = document.getElementById('batteryIcon');
+  const batteryVal = document.getElementById('batteryVal');
+  const batteryBar = document.getElementById('batteryBar');
+  const powerFlowVal = document.getElementById('powerFlowVal');
+  const powerBarFill = document.getElementById('powerBarFill');
+  const cargoMassVal = document.getElementById('cargoMassVal');
+  const chargingStatus = document.getElementById('chargingStatus');
+
+  const pickupCategoryBadge = document.getElementById('pickupCategoryBadge');
+  const pickupCatDot = document.getElementById('pickupCatDot');
+  const pickupCatName = document.getElementById('pickupCatName');
+
+  const resYellowBins = document.getElementById('resYellowBins');
+  const resBlueBins = document.getElementById('resBlueBins');
+  const resGreenBins = document.getElementById('resGreenBins');
+  const recBestTime = document.getElementById('recBestTime');
+  const recTotalKg = document.getElementById('recTotalKg');
+  const recRoutes = document.getElementById('recRoutes');
+  const newRecordPill = document.getElementById('newRecordPill');
+  const bestTimeBadge = document.getElementById('bestTimeBadge');
+  const bestTimeHud = document.getElementById('bestTimeHud');
+
+  const careerBestTime = document.getElementById('careerBestTime');
+  const careerTotalKg = document.getElementById('careerTotalKg');
+  const careerRoutes = document.getElementById('careerRoutes');
+  const careerYellowVal = document.getElementById('careerYellowVal');
+  const careerBlueVal = document.getElementById('careerBlueVal');
+  const careerGreenVal = document.getElementById('careerGreenVal');
+  const careerHistoryList = document.getElementById('careerHistoryList');
 
   // Mobile & Tablet Touch Elements
   const mobileControls = document.getElementById('mobileControls');
@@ -172,11 +211,13 @@
 
   const camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.4, 850);
 
-  // Camera Modes: 0 = Chase 3D (Behind), 1 = Birds-Eye Isometric, 2 = Driver / Hood View
+  // Camera Modes: 0 = Chase 3D (Behind), 1 = Birds-Eye Isometric,
+  //               2 = Driver / Hood View, 3 = Cockpit (First-Person)
   let cameraMode = 0;
+  const CAMERA_ICONS = ['🎥', '🚁', '🚘', '🚛'];
   function toggleCamera() {
-    cameraMode = (cameraMode + 1) % 3;
-    if (camIcon) camIcon.textContent = cameraMode === 0 ? '🎥' : (cameraMode === 1 ? '🚁' : '🚘');
+    cameraMode = (cameraMode + 1) % 4;
+    if (camIcon) camIcon.textContent = CAMERA_ICONS[cameraMode];
   }
   if (camBtn) camBtn.addEventListener('click', toggleCamera);
 
@@ -210,10 +251,26 @@
   scene.add(ambLight);
 
   // --- Controls State ---
+  // `up/down/left/right/space` track the physical keys; `dumpLockUntil` is a
+  // short timestamp gate used by the pit-stop dump, which must swallow driving
+  // input for its duration without clobbering the real key state.
   const keys = { up: false, down: false, left: false, right: false, space: false };
+  let dumpLockUntil = 0;
+
+  function isControlLocked() {
+    return isEvacuating || performance.now() < dumpLockUntil;
+  }
 
   window.addEventListener('keydown', (e) => {
     window.soundManager.ensureContext();
+    // Lock all driving input while the tow-truck evacuation fades out, or
+    // during the 1.8 s pit-stop dump at the factory.
+    if (isControlLocked()) {
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space'].includes(e.code)) {
+        e.preventDefault();
+      }
+      return;
+    }
     if (['ArrowUp', 'KeyW'].includes(e.code)) keys.up = true;
     if (['ArrowDown', 'KeyS'].includes(e.code)) keys.down = true;
     if (['ArrowLeft', 'KeyA'].includes(e.code)) keys.left = true;
@@ -225,6 +282,7 @@
     }
     if (e.code === 'KeyC') toggleCamera();
     if (e.code === 'KeyH') triggerHorn();
+    if (e.code === 'KeyL') toggleRecordsModal();
     if (e.code === 'KeyR') {
       e.preventDefault();
       resetTruckToRoad();
@@ -247,6 +305,7 @@
     function activate(e) {
       if (e && e.cancelable) e.preventDefault();
       window.soundManager.ensureContext();
+      if (isControlLocked()) return; // locked during evacuation / pit-stop dump
       keys[key] = true;
       btn.classList.add('pressed');
     }
@@ -412,6 +471,26 @@
   helpBtn.addEventListener('click', () => helpModal.classList.add('show'));
   helpCloseBtn.addEventListener('click', () => helpModal.classList.remove('show'));
   helpOkBtn.addEventListener('click', () => helpModal.classList.remove('show'));
+
+  // Standalone Records Modal (Задача 6)
+  function openRecordsModal() {
+    window.soundManager.ensureContext();
+    updateRecordsModalUI();
+    if (recordsModal) recordsModal.classList.add('show');
+  }
+
+  function toggleRecordsModal() {
+    if (recordsModal && recordsModal.classList.contains('show')) {
+      recordsModal.classList.remove('show');
+    } else {
+      openRecordsModal();
+    }
+  }
+
+  if (recordsBtn) recordsBtn.addEventListener('click', openRecordsModal);
+  if (recordsCloseBtn) recordsCloseBtn.addEventListener('click', () => recordsModal.classList.remove('show'));
+  if (recordsOkBtn) recordsOkBtn.addEventListener('click', () => recordsModal.classList.remove('show'));
+
   btnRestartLevel.addEventListener('click', () => {
     victoryModal.classList.remove('show');
     initLevel();
@@ -426,32 +505,301 @@
     window.soundManager.playHorn();
   }
 
-  // --- Game State ---
-  const gameState = {
-    status: 'collecting',
-    totalBins: 8,
-    collectedBins: 0,
-    totalKg: 0,
-    startTime: Date.now(),
-    endTime: null,
-    activePromptType: null,
-    targetBin: null
+  // --- Waste Sorting Categories (Задача 3) ---
+  // Every container carries a material `type`: 'plastic' | 'paper' | 'glass'.
+  // Each type is bound to a colour-coded sorting category (yellow / blue / green)
+  // which drives the bin mesh colour, the floating marker and the HUD badges.
+  const TYPE_BY_CATEGORY = { yellow: 'plastic', blue: 'paper', green: 'glass' };
+  const CARGO_TYPES = ['plastic', 'paper', 'glass'];
+
+  const BIN_TYPES = {
+    yellow: {
+      id: 'yellow',
+      type: 'plastic', // Yellow bin = plastic & metal
+      name: 'Пластик и Металл ♻️',
+      shortName: 'Пластик / Металл',
+      icon: '🟡',
+      color: '#f1c40f',
+      hex: 0xf1c40f,
+      markerHex: 0xf1c40f,
+      classSuffix: 'cat-yellow'
+    },
+    blue: {
+      id: 'blue',
+      type: 'paper', // Blue bin = paper & cardboard
+      name: 'Бумага и Картон 📦',
+      shortName: 'Бумага / Картон',
+      icon: '🔵',
+      color: '#2980b9',
+      hex: 0x2980b9,
+      markerHex: 0x3498db,
+      classSuffix: 'cat-blue'
+    },
+    green: {
+      id: 'green',
+      type: 'glass', // Green bin = glass & jars
+      name: 'Стекло и Банки 🍾',
+      shortName: 'Стекло / Банки',
+      icon: '🟢',
+      color: '#27ae60',
+      hex: 0x27ae60,
+      markerHex: 0x2ecc71,
+      classSuffix: 'cat-green'
+    }
   };
 
-  // --- Real Commercial Truck Physics (Heavy, Smooth, Authentically Paced) ---
+  // --- Material type metadata (used by the victory breakdown & history) ---
+  const MATERIAL_INFO = {
+    plastic: { title: 'Пластик / Металл', icon: '🟡', color: '#f1c40f', category: 'yellow' },
+    paper: { title: 'Бумага / Картон', icon: '🔵', color: '#3498db', category: 'blue' },
+    glass: { title: 'Стекло / Банки', icon: '🟢', color: '#2ecc71', category: 'green' }
+  };
+
+  // --- LocalStorage Meta-Progression Storage Engine (Задача 6) ---
+  // All persistence is wrapped in try/catch so that private-mode browsers,
+  // disabled storage or full quotas never break the game loop.
+  const META_STORAGE_KEY = 'mack_recycle_stats_v3';
+  const LEGACY_STORAGE_KEY = 'mack_recycle_stats_v2';
+  const MAX_HISTORY_ENTRIES = 20;
+
+  // Safe localStorage primitives — never throw, degrade gracefully.
+  function safeGetItem(key) {
+    try {
+      return window.localStorage.getItem(key);
+    } catch (e) {
+      console.warn('LocalStorage unavailable (read)', e);
+      return null;
+    }
+  }
+
+  function safeSetItem(key, value) {
+    try {
+      window.localStorage.setItem(key, value);
+      return true;
+    } catch (e) {
+      console.warn('LocalStorage unavailable (write)', e);
+      return false;
+    }
+  }
+
+  function createEmptyMetaStats() {
+    return {
+      routesCompleted: 0,
+      totalRecycledKg: 0,
+      bestTimeSec: null,
+      categories: { plastic: 0, paper: 0, glass: 0 },
+      history: [] // [{ date, durationSec, breakdown: { plastic, paper, glass } }]
+    };
+  }
+
+  function sanitizeHistoryEntry(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const breakdown = raw.breakdown || {};
+    return {
+      date: typeof raw.date === 'string' ? raw.date : new Date().toISOString(),
+      durationSec: Number.isFinite(raw.durationSec) ? raw.durationSec : 0,
+      breakdown: {
+        plastic: Number(breakdown.plastic) || 0,
+        paper: Number(breakdown.paper) || 0,
+        glass: Number(breakdown.glass) || 0
+      }
+    };
+  }
+
+  function loadMetaStats() {
+    let parsed = null;
+    try {
+      const saved = safeGetItem(META_STORAGE_KEY) || safeGetItem(LEGACY_STORAGE_KEY);
+      if (saved) parsed = JSON.parse(saved);
+    } catch (e) {
+      console.warn('LocalStorage error parsing stats, starting fresh', e);
+    }
+
+    const stats = createEmptyMetaStats();
+    if (!parsed || typeof parsed !== 'object') return stats;
+
+    stats.routesCompleted = Number(parsed.routesCompleted) || 0;
+    stats.totalRecycledKg = Number(parsed.totalRecycledKg) || 0;
+    stats.bestTimeSec = Number.isFinite(parsed.bestTimeSec) ? parsed.bestTimeSec : null;
+
+    // Category totals: accept both the new material-type keys and the legacy colours.
+    const parsedCats = parsed.categories || {};
+    const parsedByType = parsed.breakdownByType || {};
+    stats.categories.plastic = Number(parsedCats.plastic || parsedCats.yellow || parsedByType.plastic) || 0;
+    stats.categories.paper = Number(parsedCats.paper || parsedCats.blue || parsedByType.paper) || 0;
+    stats.categories.glass = Number(parsedCats.glass || parsedCats.green || parsedByType.glass) || 0;
+
+    if (Array.isArray(parsed.history)) {
+      stats.history = parsed.history.map(sanitizeHistoryEntry).filter(Boolean);
+    }
+    return stats;
+  }
+
+  function saveMetaStats(stats) {
+    return safeSetItem(META_STORAGE_KEY, JSON.stringify(stats));
+  }
+
+  // Record a completed route: append to the history log, update career totals
+  // and the best-time record. Returns { isNewRecord } for the UI trophy pill.
+  function recordRouteCompletion(durationSec, breakdown) {
+    const stats = loadMetaStats();
+    const safeBreakdown = {
+      plastic: Number(breakdown && breakdown.plastic) || 0,
+      paper: Number(breakdown && breakdown.paper) || 0,
+      glass: Number(breakdown && breakdown.glass) || 0
+    };
+    const totalKg = safeBreakdown.plastic + safeBreakdown.paper + safeBreakdown.glass;
+
+    stats.routesCompleted += 1;
+    stats.totalRecycledKg += totalKg;
+    stats.categories.plastic += safeBreakdown.plastic;
+    stats.categories.paper += safeBreakdown.paper;
+    stats.categories.glass += safeBreakdown.glass;
+
+    const isNewRecord = stats.bestTimeSec === null || durationSec < stats.bestTimeSec;
+    if (isNewRecord) stats.bestTimeSec = durationSec;
+
+    stats.history.unshift({
+      date: new Date().toISOString(),
+      durationSec: durationSec,
+      breakdown: safeBreakdown
+    });
+    if (stats.history.length > MAX_HISTORY_ENTRIES) {
+      stats.history.length = MAX_HISTORY_ENTRIES;
+    }
+
+    saveMetaStats(stats);
+    return { isNewRecord: isNewRecord, stats: stats };
+  }
+
+  function formatDuration(sec) {
+    if (!Number.isFinite(sec) || sec < 0) return '--:--';
+    const m = String(Math.floor(sec / 60)).padStart(2, '0');
+    const s = String(Math.floor(sec % 60)).padStart(2, '0');
+    return `${m}:${s}`;
+  }
+
+  function formatHistoryDate(isoString) {
+    const d = new Date(isoString);
+    if (isNaN(d.getTime())) return '—';
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${String(d.getFullYear()).slice(-2)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  // Show the stored personal best route time in the persistent HUD badge.
+  function updateBestTimeHUD() {
+    const stats = loadMetaStats();
+    if (bestTimeHud) bestTimeHud.textContent = formatDuration(stats.bestTimeSec);
+    if (bestTimeBadge) bestTimeBadge.style.display = stats.bestTimeSec === null ? 'none' : 'flex';
+  }
+
+  function updateRecordsModalUI() {
+    const stats = loadMetaStats();
+    if (careerBestTime) careerBestTime.textContent = formatDuration(stats.bestTimeSec);
+    if (careerTotalKg) careerTotalKg.textContent = `${stats.totalRecycledKg} кг`;
+    if (careerRoutes) careerRoutes.textContent = `${stats.routesCompleted}`;
+    if (careerYellowVal) careerYellowVal.textContent = `${stats.categories.plastic} кг`;
+    if (careerBlueVal) careerBlueVal.textContent = `${stats.categories.paper} кг`;
+    if (careerGreenVal) careerGreenVal.textContent = `${stats.categories.glass} кг`;
+
+    renderHistoryList(stats.history);
+  }
+
+  // Render the saved route log (date, time, per-material breakdown).
+  function renderHistoryList(history) {
+    if (!careerHistoryList) return;
+    if (!history || history.length === 0) {
+      careerHistoryList.innerHTML = '<div class="history-empty">Пока нет завершённых рейсов.<br>Соберите все баки и сдайте сырьё на завод!</div>';
+      return;
+    }
+    const matClass = { plastic: 'mat-yellow', paper: 'mat-blue', glass: 'mat-green' };
+    const rows = history.map((entry, idx) => {
+      const b = entry.breakdown;
+      const matCells = CARGO_TYPES.map(t => {
+        const info = MATERIAL_INFO[t];
+        return `<span class="history-mat" title="${info.title}"><i class="mat-dot ${matClass[t]}"></i>${b[t] || 0} кг</span>`;
+      }).join('');
+      return `
+        <div class="history-row">
+          <div class="history-row-head">
+            <span class="history-index">#${history.length - idx}</span>
+            <span class="history-date">${formatHistoryDate(entry.date)}</span>
+            <span class="history-time">${formatDuration(entry.durationSec)}</span>
+          </div>
+          <div class="history-row-body">${matCells}</div>
+        </div>`;
+    });
+    careerHistoryList.innerHTML = rows.join('');
+  }
+
+  // --- Game State ---
+  // currentCargo — live accounting of the recyclables in the hopper.
+  // `breakdown` keeps a separate running weight (kg) per material type.
+  const gameState = {
+    status: 'collecting',
+    totalBins: 12,
+    // Total containers picked up during the whole shift (0..totalBins).
+    // This figure survives mid-route dumps: it only ever grows. The live
+    // hopper load itself lives in `truckPhys.currentBinsInCargo`.
+    collectedBinsTotal: 0,
+    totalKg: 0,
+    currentCargo: {
+      totalKg: 0,
+      breakdown: { plastic: 0, paper: 0, glass: 0 }
+    },
+    startTime: Date.now(),
+    endTime: null,
+    timePenalty: 0, // Traffic accident penalty in ms
+    activePromptType: null,
+    targetBin: null,
+    routeRecorded: false // Prevents duplicate history entries per route
+  };
+
+  function resetCurrentCargo() {
+    gameState.currentCargo.totalKg = 0;
+    const breakdown = {};
+    CARGO_TYPES.forEach(t => { breakdown[t] = 0; });
+    gameState.currentCargo.breakdown = breakdown;
+  }
+
+  // --- Real Commercial Truck Physics with Dynamic Mass & EV Mechanics (Задачи 1 & 2) ---
   const truckPhys = {
     x: -120,
     z: -120,
     angle: 0,
     speed: 0,
-    // Realistic lower speeds for a heavy 25-ton municipal garbage truck (reduced by 25% for refined urban control)
-    maxForward: 0.36,     // ~30 km/h max speed (-25%)
-    maxReverse: -0.165,   // ~14 km/h reverse (-25%)
-    accel: 0.0068,        // Heavy realistic inertia (-25%)
-    brake: 0.018,         // Firm air-brakes (-25%)
-    friction: 0.003,      // Smooth roll friction (-25%)
-    turnSpeed: 0.026,
+    // Realistic speeds for Mack LR Electric 25-ton municipal refuse vehicle
+    maxForward: 0.36,     // ~30 km/h max speed
+    maxReverse: -0.165,   // ~14 km/h reverse
+    baseAccel: 0.0072,    // Baseline acceleration
+    baseBrake: 0.020,     // Baseline pneumatic air-brakes
+    baseTurnSpeed: 0.027, // Baseline steering responsiveness
+    friction: 0.003,      // Smooth rolling friction
     steerAngle: 0,
+
+    // Payload Mass Physics (Задача 1) + mid-route dump support
+    currentCargoWeight: 0,   // in kg (0 to 1440 = 12 containers × 120 kg)
+    currentBinsInCargo: 0,   // containers physically in the hopper right now (0..maxBins)
+    maxCargoWeight: 1440,
+    maxBins: 12,
+    massFactor: 1.0,       // massFactor = 1.0 - (currentCargoWeight / maxCargoWeight) * 0.35
+
+    // EV Battery & Power Flow (Задача 2)
+    batteryLevel: 100.0,   // State of charge (0% to 100%)
+    powerFlow: 0,          // Live kW power flow (positive = discharge, negative = regen/charge)
+    isCharging: false,     // Charging Pad docking status
+    chargingSoundCooldown: 0,
+    // e-PTO (electric Power Take-Off): the robotic arm's hydraulic pump.
+    // `ptoOverrideUntil` forces the cluster to show the 240 kW peak while the
+    // pump runs (the arm cycle itself already drives its own hydraulic audio).
+    ptoOverrideUntil: 0,
+    lastTrafficCollisionTime: 0,
+    lowBatteryAlertTriggered: false, // Latches the ≤15% warning until >18% (hysteresis)
+
+    // Post-crash rebound velocity (metres per unit-frame) applied after an NPC
+    // collision so the truck visibly kicks back out of the contact point.
+    collisionRecoilX: 0,
+    collisionRecoilZ: 0,
 
     // Suspension dynamics
     pitch: 0,
@@ -481,13 +829,21 @@
     // Factory unloading
     tailgateAngle: 0,
     isDumpingAtFactory: false,
-    dumpProgress: 0
+    dumpProgress: 0,
+
+    // Intermediate (pit-stop) dump at the plant — a short lock-out that empties
+    // the hopper without ending the shift.
+    isQuickDumping: false,
+    quickDumpProgress: 0
   };
 
   let cutsceneActive = false;
   let stuckTimer = 0;
   let isStuckPulsingActive = false;
   let toastTimeout = null;
+  // --- Battery depletion / tow-truck evacuation state ---
+  let isEvacuating = false;      // true while the fade-to-black evacuation plays
+  let evacuationTimeout = null;  // pending "delivered to the factory" completion
 
   function showToast(title, desc, icon = '🛣️', duration = 2800, isAlert = false) {
     if (!toastNotification) return;
@@ -614,15 +970,17 @@
   cabGroup.add(createMirror(false), createMirror(true));
 
   // Cab Interior: Minifig Driver, Steering Wheel & Dashboard
+  // Driver sits on the LEFT seat (left-hand drive): the truck faces +Z, so its
+  // left side is local +X.
   const driverHead = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.35, 12), new THREE.MeshStandardMaterial({ color: 0xf1c40f }));
-  driverHead.position.set(-0.45, 1.35, 0.1);
+  driverHead.position.set(0.45, 1.35, 0.1);
   const driverHelmet = new THREE.Mesh(new THREE.SphereGeometry(0.24, 10, 10), matLegoWhite);
-  driverHelmet.position.set(-0.45, 1.48, 0.1);
+  driverHelmet.position.set(0.45, 1.48, 0.1);
   const driverVest = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.55, 0.3), new THREE.MeshStandardMaterial({ color: 0x2ecc71, roughness: 0.3 }));
-  driverVest.position.set(-0.45, 0.95, 0.1);
+  driverVest.position.set(0.45, 0.95, 0.1);
   // Realistic Steering Wheel
   const steerWheel = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.035, 8, 16), matLegoBlack);
-  steerWheel.position.set(-0.45, 1.05, 0.42);
+  steerWheel.position.set(0.45, 1.05, 0.42);
   steerWheel.rotation.x = -Math.PI / 4;
   cabGroup.add(driverHead, driverHelmet, driverVest, steerWheel);
 
@@ -1016,9 +1374,10 @@
     wheels.push({ group: wGroup, isFront: pos.isFront });
   });
 
-  // --- Wheelie Bin Mesh Builder Helper ---
-  function createBinMesh(lidColor) {
+  // --- Wheelie Bin Mesh Builder Helper (Задача 3: Цветовое кодирование по категориям) ---
+  function createBinMesh(categoryOrColor) {
     const binGroup = new THREE.Group();
+    const color = (typeof categoryOrColor === 'object' && categoryOrColor) ? categoryOrColor.color : (categoryOrColor || '#2ecc71');
 
     // Body with molded vertical ribs
     const bodyGeom = new THREE.BoxGeometry(0.95, 1.25, 0.95);
@@ -1027,11 +1386,18 @@
     body.castShadow = true;
     binGroup.add(body);
 
+    // Color category trim band
+    const bandGeom = new THREE.BoxGeometry(0.98, 0.16, 0.98);
+    const matBand = new THREE.MeshStandardMaterial({ color: color, roughness: 0.35 });
+    const band = new THREE.Mesh(bandGeom, matBand);
+    band.position.y = 0.92;
+    binGroup.add(band);
+
     // Hinged Lid with handle
     const lidGroup = new THREE.Group();
     lidGroup.position.set(0, 1.25, -0.45); // hinge pivot on rear
     const lidGeom = new THREE.BoxGeometry(1.02, 0.18, 1.02);
-    const matLid = new THREE.MeshStandardMaterial({ color: lidColor, roughness: 0.3 });
+    const matLid = new THREE.MeshStandardMaterial({ color: color, roughness: 0.28 });
     const lid = new THREE.Mesh(lidGeom, matLid);
     lid.position.set(0, 0.09, 0.45);
     lid.castShadow = true;
@@ -1057,15 +1423,7 @@
     return binGroup;
   }
 
-  // --- 3D Target Markers (Floating Green Arrow & Pulsing Ground Halo) ---
-  const matMarkerGreen = new THREE.MeshStandardMaterial({
-    color: 0x2ecc71,
-    emissive: 0x27ae60,
-    emissiveIntensity: 0.95,
-    roughness: 0.25,
-    metalness: 0.1
-  });
-
+  // --- 3D Target Markers (Category-Coded Floating Arrow & Pulsing Ground Halo) ---
   const matMarkerDiamond = new THREE.MeshStandardMaterial({
     color: 0x00d2d3,
     emissive: 0x00d2d3,
@@ -1080,18 +1438,27 @@
   const markerRingGeom = new THREE.RingGeometry(0.85, 1.25, 24);
   markerRingGeom.rotateX(-Math.PI / 2);
 
-  function createBinMarker() {
+  function createBinMarker(category) {
     const markerGroup = new THREE.Group();
+    const markerHex = (category && category.markerHex) ? category.markerHex : 0x2ecc71;
+
+    const matMarker = new THREE.MeshStandardMaterial({
+      color: markerHex,
+      emissive: markerHex,
+      emissiveIntensity: 0.95,
+      roughness: 0.25,
+      metalness: 0.1
+    });
 
     // 1. Floating Animated Arrow
     const arrowGroup = new THREE.Group();
     arrowGroup.position.y = 2.4;
 
-    const cone = new THREE.Mesh(arrowConeGeom, matMarkerGreen);
+    const cone = new THREE.Mesh(arrowConeGeom, matMarker);
     cone.position.y = -0.2;
     arrowGroup.add(cone);
 
-    const stem = new THREE.Mesh(arrowStemGeom, matMarkerGreen);
+    const stem = new THREE.Mesh(arrowStemGeom, matMarker);
     stem.position.y = 0.35;
     arrowGroup.add(stem);
 
@@ -1103,7 +1470,7 @@
 
     // 2. Ground Pulsing Ring
     const ringMat = new THREE.MeshBasicMaterial({
-      color: 0x2ecc71,
+      color: markerHex,
       transparent: true,
       opacity: 0.65,
       side: THREE.DoubleSide,
@@ -1877,11 +2244,8 @@
     createMinifigure3D(cx - w / 2 + 1.6, cz - 6.0, 0, 0xe74c3c, 0x2c3e50, false);
     createMinifigure3D(cx + w / 2 - 1.6, cz + 6.0, Math.PI, 0x0984e3, 0x1e272e, true);
     createMinifigure3D(cx + 4.0, cz - d / 2 + 1.6, Math.PI / 2, 0x2ecc71, 0x2c3e50, false);
-
-    spawn3DBin(cx, cz - d / 2 + 0.65, 0, '#27ae60', 'Пластик & Вторсырье ♻️');
-    spawn3DBin(cx + w / 2 - 0.65, cz, Math.PI / 2, '#2980b9', 'Бумага & Картон 📦');
-    spawn3DBin(cx, cz + d / 2 - 0.65, Math.PI, '#f39c12', 'Стекло & Банки 🍾');
-    spawn3DBin(cx - w / 2 + 0.65, cz, -Math.PI / 2, '#27ae60', 'Эко-Контейнер 🌿');
+    // Containers are no longer hard-wired to the block corners — they are
+    // spawned procedurally from POTENTIAL_BIN_SPAWNS in initLevel().
   }
 
   // --- Detailed 3D Fire Hydrant ---
@@ -1942,13 +2306,14 @@
     scene.add(grate);
   }
 
-  function spawn3DBin(x, z, angle, color, label) {
-    const binMesh = createBinMesh(color);
+  function spawn3DBin(x, z, angle, categoryType) {
+    const category = (typeof categoryType === 'object' && categoryType) ? categoryType : (BIN_TYPES[categoryType] || BIN_TYPES.yellow);
+    const binMesh = createBinMesh(category);
     binMesh.position.set(x, 0.35, z);
     binMesh.rotation.y = angle;
     scene.add(binMesh);
 
-    const marker = createBinMarker();
+    const marker = createBinMarker(category);
     marker.position.set(x, 0, z);
     scene.add(marker);
 
@@ -1958,10 +2323,106 @@
       marker: marker,
       x: x,
       z: z,
-      color: color,
+      // Material type of this container: 'plastic' | 'paper' | 'glass'
+      type: category.type || TYPE_BY_CATEGORY[category.id] || 'plastic',
+      category: category,
+      color: category.color,
       collected: false,
-      label: label
+      label: category.name
     });
+  }
+
+  // ==========================================================================
+  // PROCEDURAL BIN SPAWN POOL
+  // --------------------------------------------------------------------------
+  // Every container must sit kerbside on the side the truck's robotic arm can
+  // reach. The arm is mounted at local +X (armBase.x = 1.24) and the pickup
+  // probe samples `truck + (cos a, -sin a) * 2.3`, i.e. the world direction of
+  // the truck's local +X for its current heading a:
+  //
+  //   truck drives +X (a=+90°) → arm toward -Z
+  //   truck drives -X (a=-90°) → arm toward +Z
+  //   truck drives +Z (a=0°)   → arm toward +X
+  //   truck drives -Z (a=180°) → arm toward -X
+  //
+  // Lanes are keyed so lane = +LANE drives +X/+Z and lane = -LANE drives
+  // -X/-Z. Hence the arm-side offset sign from the road centre is:
+  //   x-roads: -sign(lane)   z-roads: +sign(lane)
+  //
+  // `perpSign` is that signed side; the container's mouth (local +Z) is aimed
+  // back toward the roadway so the arm can reach into it.
+  // ==========================================================================
+  function armSideSign(axis, lane) {
+    const s = lane > 0 ? 1 : -1;
+    return axis === 'x' ? -s : s;
+  }
+  function binAngleForPerp(axis, perpSign) {
+    if (axis === 'x') return perpSign < 0 ? 0 : Math.PI;
+    return perpSign > 0 ? -Math.PI / 2 : Math.PI / 2;
+  }
+
+  const POTENTIAL_BIN_SPAWNS = (() => {
+    const KERB = 9.5;        // distance from road centre to kerb — on the sidewalk
+    const SPAWN_LIMIT = 150; // keep spawns clear of the outer U-turn zone (190)
+    const LANE = 3.6;        // lane centre offset from the road centre line
+    const diagonal = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
+    const pool = [];
+    const seen = new Set();
+    const add = (axis, line, lane, along) => {
+      if (Math.abs(along) > SPAWN_LIMIT) return;
+      const len = Math.round(Math.abs(along) / 2);
+      const key = `${axis}|${line}|${lane}|${len}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      const perpSign = armSideSign(axis, lane);
+      const perp = perpSign * KERB;
+      let x, z;
+      if (axis === 'x') { x = along; z = line + perp; }
+      else { x = line + perp; z = along; }
+      pool.push({ x, z, angle: binAngleForPerp(axis, perpSign), axis, line, lane, along, perpSign });
+    };
+
+    gridCoords.forEach((line, idx) => {
+      // --- x-roads (running east-west along Z = line) ---
+      add('x', line, LANE, -148);          // beside the recycling plant
+      add('x', line, -LANE, 150);          // beside the recycling plant
+      add('x', line, LANE, -80);           // mid-block
+      add('x', line, -LANE, 78);           // mid-block
+      add('x', line, LANE, 148);           // far block, opposite curb
+      add('x', line, -LANE, -150);         // far block, opposite curb
+      add('x', line, LANE, 60);            // outer mid-block
+      add('x', line, -LANE, -60);          // outer mid-block
+      if (idx % 2 === 1) add('x', line, LANE, -12); // near an intersection
+
+      // --- z-roads (running north-south along X = line) ---
+      add('z', line, LANE, -150);          // beside the park
+      add('z', line, -LANE, -78);
+      add('z', line, -LANE, 78);
+      add('z', line, LANE, 150);           // far block, opposite curb
+      add('z', line, -LANE, -150);         // far block, opposite curb
+      add('z', line, LANE, 60);            // outer mid-block
+      add('z', line, -LANE, -60);          // outer mid-block
+      if (idx % 2 === 1) add('z', line, -LANE, 12); // near an intersection
+    });
+
+    // --- Park perimeter (Central Park block) ---
+    diagonal.forEach(([sx, sz]) => {
+      add('x', 40, sx > 0 ? -LANE : LANE, sz * 76);
+      add('z', 40, -LANE, sz * 76);
+      add('z', 40, LANE, sz * 76);
+    });
+
+    return pool;
+  })();
+
+  // Fisher-Yates shuffle on a copy (the pool itself must stay intact).
+  function shuffleCopy(arr) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const t = a[i]; a[i] = a[j]; a[j] = t;
+    }
+    return a;
   }
 
   // --- Detailed 3D Street Lamp ---
@@ -2168,6 +2629,55 @@
     p2.position.set(w * 0.18 + bayW / 2, 1.8, d * 0.22 - bayD / 2);
     plantGroup.add(p1, p2);
 
+    // --- EV Fast Charging Pad (open to the player at any time) ---
+    // Parked at the front-right corner of the yard, right next to the unloading
+    // dock bay. The zone is a plain radius check, so it works mid-shift.
+    const CHARGE_RADIUS = 8.0;
+    const chargeLocalX = 24;   // world x ≈ cx + 24 (open corner, no colliders)
+    const chargeLocalZ = 24;   // world z ≈ cz + 24
+
+    // Glowing green asphalt polygon with a neon-cyan rim.
+    const chargePad = new THREE.Mesh(
+      new THREE.CircleGeometry(CHARGE_RADIUS, 40),
+      new THREE.MeshStandardMaterial({
+        color: 0x0b3a2a,
+        emissive: 0x1fbf6b,
+        emissiveIntensity: 0.45,
+        roughness: 0.45
+      })
+    );
+    chargePad.rotateX(-Math.PI / 2);
+    chargePad.position.set(chargeLocalX, 0.42, chargeLocalZ);
+    plantGroup.add(chargePad);
+
+    const chargeRim = new THREE.Mesh(
+      new THREE.RingGeometry(CHARGE_RADIUS - 0.35, CHARGE_RADIUS, 48),
+      new THREE.MeshStandardMaterial({ color: 0x00d2d3, emissive: 0x00d2d3, emissiveIntensity: 1.0, side: THREE.DoubleSide })
+    );
+    chargeRim.rotateX(-Math.PI / 2);
+    chargeRim.position.set(chargeLocalX, 0.44, chargeLocalZ);
+    plantGroup.add(chargeRim);
+
+    // Overhead lightning bolt so the pad reads instantly from the road.
+    const boltShape = new THREE.Shape();
+    boltShape.moveTo(0.35, 1.6);
+    boltShape.lineTo(-0.55, 0.15);
+    boltShape.lineTo(-0.05, 0.15);
+    boltShape.lineTo(-0.35, -1.6);
+    boltShape.lineTo(0.55, -0.05);
+    boltShape.lineTo(0.05, -0.05);
+    boltShape.closePath();
+    const bolt = new THREE.Mesh(
+      new THREE.ExtrudeGeometry(boltShape, { depth: 0.12, bevelEnabled: false }),
+      new THREE.MeshStandardMaterial({ color: 0x00d2d3, emissive: 0x00d2d3, emissiveIntensity: 1.2, roughness: 0.3 })
+    );
+    bolt.position.set(chargeLocalX, 4.4, chargeLocalZ);
+    plantGroup.add(bolt);
+
+    const boltPole = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.18, 4.4, 10), matLegoGrey);
+    boltPole.position.set(chargeLocalX, 2.2, chargeLocalZ);
+    plantGroup.add(boltPole);
+
     scene.add(plantGroup);
 
     const factoryBeacon = createFactoryBeacon();
@@ -2183,6 +2693,11 @@
         z: cz + d * 0.22,
         w: bayW,
         d: bayD
+      },
+      chargingBay: {
+        x: cx + chargeLocalX,
+        z: cz + chargeLocalZ,
+        radius: CHARGE_RADIUS
       }
     };
 
@@ -2209,29 +2724,582 @@
     });
   }
 
+  // ==========================================================================
+  // TRAFFIC SYSTEM — LOW-POLY NPC CARS (Задача 4)
+  // Pure distance checks (Math.hypot) + straight-line integration on the road
+  // grid. No physics engine, no per-polygon colliders, no render-target tricks.
+  // ==========================================================================
+
+  // Lateral offset from the road centre line (±3.6 → right-hand-drive lanes)
+  const NPC_LANE_OFFSET = 3.6;
+  // The city roads run along `gridCoords`: rows are Z lines, columns are X lines.
+  const NPC_GRID_ROW_Z = gridCoords;
+  const NPC_GRID_COL_X = gridCoords;
+  // Cars turn around before leaving the world (WORLD_SIZE / 2 - 20 = 190)
+  const NPC_TURN_ZONE = WORLD_SIZE / 2 - 20;
+  // Probability of turning at any given intersection (otherwise drive straight).
+  const NPC_TURN_CHANCE = 0.35;
+
+  const NPC_SPAWN_MIN = 8;
+  const NPC_SPAWN_MAX = 10;
+  // Forward proximity sensor reach in metres (the task's 6-metre brake distance).
+  const NPC_SENSOR_Z = 6.0;
+  // Same-direction (convoy) braking: a car only brakes for another NPC when the
+  // heading difference is within ~45°, i.e. they travel the same way.
+  const NPC_CONVOY_COS = Math.cos(Math.PI / 4);
+  // Anti-deadlock watchdog: if a car sits still this long without the player
+  // truck nearby, it is respawned onto a free random road.
+  const NPC_STUCK_SECONDS = 3.0;
+  // The truck must be within this range for a stall to count as "caused by the
+  // player" (then the NPC keeps patiently yielding instead of despawning).
+  const NPC_STUCK_PLAYER_RANGE = 12.0;
+  // Passenger-car collision radius (used for the truck↔NPC separation test).
+  const NPC_CAR_RADIUS = 1.95;
+  // After a crash the NPC stays frozen for a moment so it cannot instantly
+  // drive back into the player's truck.
+  const NPC_STUN_SECONDS = 1.2;
+  // Per-car collision immunity window (ms): while active the truck and that
+  // specific car ignore each other, letting the player back out / steer away.
+  const NPC_COLLISION_COOLDOWN_MS = 950;
+  // Initial backward recoil shove applied to the truck on impact (metres/frame,
+  // decays geometrically over the following frames).
+  const NPC_RECOIL_IMPULSE = 0.10;
+  // Minimum penetration depth that counts as a crash. Prevents two bodies that
+  // are merely resting in contact from re-triggering the impact every cooldown.
+  const NPC_CONTACT_SLOP = 0.06;
+
+  // Shared low-poly materials for the whole NPC fleet (no per-car allocations).
+  const matNpcWhite = new THREE.MeshStandardMaterial({ color: 0xf5f6fa, roughness: 0.3, metalness: 0.15 });
+  const matNpcRed = new THREE.MeshStandardMaterial({ color: 0xe74c3c, roughness: 0.3, metalness: 0.15 });
+  const matNpcBlue = new THREE.MeshStandardMaterial({ color: 0x2980b9, roughness: 0.3, metalness: 0.15 });
+  const matNpcYellow = new THREE.MeshStandardMaterial({ color: 0xf1c40f, roughness: 0.3, metalness: 0.15 });
+  const matNpcDark = new THREE.MeshStandardMaterial({ color: 0x2c3e50, roughness: 0.5, metalness: 0.2 });
+  const matNpcGlass = new THREE.MeshStandardMaterial({ color: 0x1b2631, roughness: 0.1, metalness: 0.85, transparent: true, opacity: 0.82 });
+
+  const NPC_CAR_PALETTES = [
+    { name: 'red', body: matNpcRed, roof: matNpcWhite },
+    { name: 'blue', body: matNpcBlue, roof: matNpcWhite },
+    { name: 'white', body: matNpcWhite, roof: matNpcDark },
+    { name: 'yellow', body: matNpcYellow, roof: matNpcDark }
+  ];
+
+  // Shared low-poly geometries (reused across every car → minimal draw memory).
+  const npcBodyGeom = new THREE.BoxGeometry(1.76, 0.62, 3.5);
+  const npcCabinGeom = new THREE.BoxGeometry(1.58, 0.56, 1.65);
+  const npcWheelGeom = new THREE.CylinderGeometry(0.32, 0.32, 0.24, 12);
+  npcWheelGeom.rotateZ(Math.PI / 2);
+  const npcHeadlightGeom = new THREE.BoxGeometry(0.3, 0.14, 0.08);
+  const npcTaillightGeom = new THREE.BoxGeometry(0.28, 0.12, 0.08);
+  const matNpcHeadlight = new THREE.MeshStandardMaterial({ color: 0xfff6c8, emissive: 0xfff6c8, emissiveIntensity: 0.75 });
+  const matNpcTaillight = new THREE.MeshStandardMaterial({ color: 0xe74c3c, emissive: 0xe74c3c, emissiveIntensity: 0.65 });
+
+  let npcCars = [];
+
+  // --- Low-poly passenger car builder (кузов + колёса, цвет по палитре) ---
+  function createNpcCarMesh(palette) {
+    const car = new THREE.Group();
+
+    const body = new THREE.Mesh(npcBodyGeom, palette.body);
+    body.position.y = 0.55;
+    body.castShadow = true;
+    car.add(body);
+
+    // Cabin greenhouse with dark glass band
+    const cabin = new THREE.Mesh(npcCabinGeom, palette.roof);
+    cabin.position.set(0, 1.1, -0.35);
+    cabin.castShadow = true;
+    car.add(cabin);
+
+    const glass = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.4, 0.12), matNpcGlass);
+    glass.position.set(0, 1.12, 0.5);
+    car.add(glass);
+
+    const windshieldRear = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.36, 0.1), matNpcGlass);
+    windshieldRear.position.set(0, 1.12, -1.2);
+    car.add(windshieldRear);
+
+    // Roof plate
+    const roof = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.1, 1.5), palette.roof);
+    roof.position.set(0, 1.4, -0.35);
+    car.add(roof);
+
+    // Four wheels
+    const wheelZ = [1.25, -1.25];
+    const wheelX = [0.88, -0.88];
+    const wheels = [];
+    wheelZ.forEach(z => {
+      wheelX.forEach(x => {
+        const w = new THREE.Mesh(npcWheelGeom, matLegoBlack);
+        w.position.set(x, 0.32, z);
+        w.castShadow = true;
+        car.add(w);
+        wheels.push(w);
+      });
+    });
+
+    // Headlights (front, +Z) and taillights (rear, -Z)
+    [-0.55, 0.55].forEach(x => {
+      const hl = new THREE.Mesh(npcHeadlightGeom, matNpcHeadlight);
+      hl.position.set(x, 0.62, 1.76);
+      car.add(hl);
+
+      const tl = new THREE.Mesh(npcTaillightGeom, matNpcTaillight);
+      tl.position.set(x, 0.66, -1.76);
+      car.add(tl);
+    });
+
+    car.userData.wheels = wheels;
+    return car;
+  }
+
+  // --- Routing helpers ---
+  // Convert an axis + grid index + direction into the lane snapshot used by AI.
+  function buildNpcLanes() {
+    const lanes = [];
+    for (let gzIndex = 0; gzIndex < NPC_GRID_ROW_Z.length; gzIndex++) {
+      const zLine = NPC_GRID_ROW_Z[gzIndex];
+      lanes.push({ axis: 'x', gzIndex: gzIndex, line: zLine, lane: NPC_LANE_OFFSET });   // driving east
+      lanes.push({ axis: 'x', gzIndex: gzIndex, line: zLine, lane: -NPC_LANE_OFFSET });  // driving west
+    }
+    for (let gxIndex = 0; gxIndex < NPC_GRID_COL_X.length; gxIndex++) {
+      const xLine = NPC_GRID_COL_X[gxIndex];
+      lanes.push({ axis: 'z', gxIndex: gxIndex, line: xLine, lane: NPC_LANE_OFFSET });   // driving south
+      lanes.push({ axis: 'z', gxIndex: gxIndex, line: xLine, lane: -NPC_LANE_OFFSET });  // driving north
+    }
+    return lanes;
+  }
+
+  const NPC_LANES = buildNpcLanes();
+
+  // Snap a car onto a lane. `dir` is the travel direction along that axis (+1/-1).
+  function placeCarOnLane(car, axis, line, lane, direction, alongCoord) {
+    car.axis = axis;
+    car.line = line;
+    car.lane = lane;
+    car.dir = direction;
+
+    if (axis === 'x') {
+      car.z = line + lane;      // horizontal road, z is fixed by the lane
+      car.x = alongCoord;       // x travels freely
+      car.angle = direction > 0 ? Math.PI / 2 : -Math.PI / 2;
+    } else {
+      car.x = line + lane;      // vertical road, x is fixed by the lane
+      car.z = alongCoord;       // z travels freely
+      car.angle = direction > 0 ? 0 : Math.PI;
+    }
+
+    car.group.position.set(car.x, 0, car.z);
+    car.group.rotation.y = car.angle;
+  }
+
+  function spawnNpcCar() {
+    const palette = NPC_CAR_PALETTES[Math.floor(Math.random() * NPC_CAR_PALETTES.length)];
+    const car = {
+      group: createNpcCarMesh(palette),
+      color: palette.name,
+      speed: 0,
+      targetSpeed: 0,
+      stopped: false,
+      // Seconds remaining before this car may accelerate again after a crash.
+      stunTimer: 0,
+      // Timestamp of the last crash with the player (per-car immunity window).
+      lastCollisionTime: 0,
+      // Anti-deadlock watchdog: seconds spent stalled without the player nearby.
+      stuckTimer: 0
+    };
+
+    // Spread initial spawns over different lanes; retries avoid overlapping cars.
+    for (let attempt = 0; attempt < 24; attempt++) {
+      const lane = NPC_LANES[Math.floor(Math.random() * NPC_LANES.length)];
+      const direction = lane.lane > 0 ? 1 : -1;
+      const spawnRange = WORLD_SIZE / 2 - 30;
+      const along = (Math.random() - 0.5) * 2 * spawnRange;
+
+      placeCarOnLane(car, lane.axis, lane.line, lane.lane, direction, along);
+
+      // Keep a safe gap from the player truck and from other NPC cars.
+      if (Math.hypot(car.x - truckPhys.x, car.z - truckPhys.z) < 22) continue;
+      let overlaps = false;
+      for (const other of npcCars) {
+        if (Math.hypot(car.x - other.x, car.z - other.z) < 11) {
+          overlaps = true;
+          break;
+        }
+      }
+      if (overlaps) continue;
+      break;
+    }
+
+    const cruiseSpeed = 0.25 + Math.random() * 0.09; // ~20.5–27.9 km/h
+    car.targetSpeed = cruiseSpeed;
+    car.speed = cruiseSpeed;
+
+    npcCars.push(car);
+    scene.add(car.group);
+    return car;
+  }
+
+  function spawnTraffic() {
+    removeTraffic();
+    const count = NPC_SPAWN_MIN + Math.floor(Math.random() * (NPC_SPAWN_MAX - NPC_SPAWN_MIN + 1));
+    for (let i = 0; i < count; i++) spawnNpcCar();
+  }
+
+  // Anti-deadlock helper: teleport a stalled NPC onto a random road lane, far
+  // from the player truck and clear of the rest of the fleet. Returns true on
+  // success (a free spot was found within the attempt budget).
+  function respawnNpcCarToFreeLane(car) {
+    const spawnRange = WORLD_SIZE / 2 - 30;
+    for (let attempt = 0; attempt < 30; attempt++) {
+      const lane = NPC_LANES[Math.floor(Math.random() * NPC_LANES.length)];
+      const direction = lane.lane > 0 ? 1 : -1;
+      const along = (Math.random() - 0.5) * 2 * spawnRange;
+      placeCarOnLane(car, lane.axis, lane.line, lane.lane, direction, along);
+
+      // Well clear of the player (> 35 m) and of other NPC cars.
+      if (Math.hypot(car.x - truckPhys.x, car.z - truckPhys.z) < 35) continue;
+      let overlaps = false;
+      for (const other of npcCars) {
+        if (other === car) continue;
+        if (Math.hypot(car.x - other.x, car.z - other.z) < 12) {
+          overlaps = true;
+          break;
+        }
+      }
+      if (overlaps) continue;
+      return true;
+    }
+    return false;
+  }
+
+  function removeTraffic() {
+    for (const car of npcCars) scene.remove(car.group);
+    npcCars = [];
+  }
+
+  // --- Forward proximity sensor ---
+  // The player truck always makes an NPC brake. Other NPC cars are only treated
+  // as obstacles when they travel the SAME direction (convoy, heading within
+  // ~45°) — so oncoming cars and 90° crossroads never mutually lock up.
+  function npcSensorBlocked(car) {
+    const dirX = car.axis === 'x' ? car.dir : 0;
+    const dirZ = car.axis === 'z' ? car.dir : 0;
+
+    // --- Player refuse truck: always yield ---
+    // Measured to the truck centre but extended by half the truck body, so the
+    // NPC stops with a ~6–7 m gap to the actual rear of the long refuse body.
+    const tdx = truckPhys.x - car.x;
+    const tdz = truckPhys.z - car.z;
+    const truckAhead = tdx * dirX + tdz * dirZ;
+    const truckReach = NPC_SENSOR_Z + truckPhys.length / 2; // ≈ 10.4 m to centre
+    if (truckAhead > 0 && truckAhead < truckReach && Math.hypot(tdx, tdz) < truckReach) {
+      return true;
+    }
+
+    // --- Other NPC cars: only brake for same-direction convoys ---
+    // Heading vectors (three.js rotation.y: forward = (sin, cos)).
+    const myFwdX = Math.sin(car.angle);
+    const myFwdZ = Math.cos(car.angle);
+
+    for (const other of npcCars) {
+      if (other === car) continue;
+
+      const dx = other.x - car.x;
+      const dz = other.z - car.z;
+
+      // Only cars genuinely ahead along our own travel direction matter.
+      const ahead = dx * dirX + dz * dirZ;
+      if (ahead <= 0 || ahead > NPC_SENSOR_Z + 1.5) continue;
+
+      // Skip oncoming / perpendicular traffic: only same-direction convoys brake.
+      const otherFwdX = Math.sin(other.angle);
+      const otherFwdZ = Math.cos(other.angle);
+      const dot = myFwdX * otherFwdX + myFwdZ * otherFwdZ;
+      if (dot < NPC_CONVOY_COS) continue;
+
+      if (Math.hypot(dx, dz) < NPC_SENSOR_Z) return true;
+    }
+    return false;
+  }
+
+  // --- Frame-rate independent step (normalised to the ~60 FPS target) ---
+  let lastTrafficFrameTime = 0;
+  function getTrafficDelta() {
+    const now = performance.now();
+    if (lastTrafficFrameTime === 0) {
+      lastTrafficFrameTime = now;
+      return 1;
+    }
+    const deltaMs = now - lastTrafficFrameTime;
+    lastTrafficFrameTime = now;
+    // 16.67 ms == one unit of per-frame travel at 60 FPS.
+    return deltaMs / 16.667;
+  }
+
+  // --- Per-frame traffic simulation (straight segments + smooth braking) ---
+  function updateTraffic(delta) {
+    if (!npcCars.length) return;
+
+    const timeFactor = Math.min(Math.max(delta, 0.35), 2.5); // frame-rate compensation
+    // Seconds elapsed for this step (delta is normalised to a 60 FPS frame).
+    const seconds = Math.min(Math.max(delta, 0.35), 2.5) / 60;
+
+    for (const car of npcCars) {
+      // After a crash the car is frozen for a moment so it cannot instantly
+      // drive back into the player's truck.
+      if (car.stunTimer > 0) {
+        car.stunTimer = Math.max(0, car.stunTimer - seconds);
+        car.speed = 0;
+        car.stopped = true;
+        car.stuckTimer = 0;
+        continue;
+      }
+
+      // Brake smoothly to a full stop when the lane ahead is blocked.
+      const blocked = npcSensorBlocked(car);
+      const desired = blocked ? 0 : car.targetSpeed;
+
+      // Smooth acceleration / braking (no instant velocity jumps).
+      const rate = desired < car.speed ? 0.017 : 0.006;
+      if (car.speed < desired) car.speed = Math.min(desired, car.speed + rate * timeFactor);
+      else if (car.speed > desired) car.speed = Math.max(desired, car.speed - rate * timeFactor);
+      car.stopped = car.speed < 0.01;
+
+      // --- Anti-deadlock watchdog ---
+      // A car pinned still for too long WITHOUT the player nearby is stuck on
+      // other traffic (crossroads, head-on). Teleport it to a free random lane
+      // so the fleet never freezes forever. Stalls caused by the player truck
+      // are exempt: the NPC keeps patiently yielding instead of vanishing.
+      const playerDist = Math.hypot(car.x - truckPhys.x, car.z - truckPhys.z);
+      if (Math.abs(car.speed) < 0.02 && playerDist > NPC_STUCK_PLAYER_RANGE) {
+        car.stuckTimer += seconds;
+        if (car.stuckTimer > NPC_STUCK_SECONDS) {
+          if (respawnNpcCarToFreeLane(car)) {
+            car.stuckTimer = 0;
+            car.stunTimer = 0;
+            car.speed = car.targetSpeed;
+            car.stopped = false;
+            continue; // lane placement already refreshed the 3D transform
+          }
+          // No free spot this frame: keep the timer primed and retry next frame.
+          car.stuckTimer = NPC_STUCK_SECONDS;
+        }
+      } else {
+        car.stuckTimer = 0;
+      }
+
+      // Straight-line integration along the current lane.
+      const prevAlong = car.axis === 'x' ? car.x : car.z;
+      const nextAlong = prevAlong + car.dir * car.speed * timeFactor;
+
+      // Junction crossing: possibly turn onto the perpendicular road.
+      // (Junctions are the grid intersections, not the road ends.)
+      let turned = false;
+      if (!blocked && car.speed > 0.02) {
+        const junctions = car.axis === 'x' ? NPC_GRID_COL_X : NPC_GRID_ROW_Z;
+        for (let jIdx = 0; jIdx < junctions.length; jIdx++) {
+          const j = junctions[jIdx];
+          const crossed = car.dir > 0 ? (prevAlong < j && nextAlong >= j) : (prevAlong > j && nextAlong <= j);
+          if (!crossed) continue;
+          if (Math.random() < NPC_TURN_CHANCE) {
+            const nextAxis = car.axis === 'x' ? 'z' : 'x';
+            const laneSign = Math.random() < 0.5 ? 1 : -1;
+            const lane = NPC_LANES.find(l => l.axis === nextAxis && l.line === j && Math.sign(l.lane) === laneSign)
+              || NPC_LANES.find(l => l.axis === nextAxis && l.line === j);
+            const newDir = lane.lane > 0 ? 1 : -1;
+            // The perpendicular coordinate stays put → no teleport.
+            placeCarOnLane(car, nextAxis, j, lane.lane, newDir, car.line + car.lane);
+            turned = true;
+          }
+          break;
+        }
+      }
+
+      if (!turned) {
+        if (car.axis === 'x') car.x = nextAlong;
+        else car.z = nextAlong;
+      }
+
+      // End-of-road behaviour: U-turn onto the return lane.
+      const alongNow = car.axis === 'x' ? car.x : car.z;
+      if (Math.abs(alongNow) > NPC_TURN_ZONE) {
+        const uTurnAlong = car.dir > 0 ? NPC_TURN_ZONE : -NPC_TURN_ZONE;
+        placeCarOnLane(car, car.axis, car.line, -car.lane, -car.dir, uTurnAlong);
+      }
+
+      // Keep cars inside the world bounds.
+      const limit = WORLD_SIZE / 2 - 12;
+      car.x = Math.max(-limit, Math.min(limit, car.x));
+      car.z = Math.max(-limit, Math.min(limit, car.z));
+
+      // Apply to the 3D transform.
+      car.group.position.set(car.x, 0, car.z);
+      car.group.rotation.y = car.angle;
+
+      // Roll wheels proportionally to travel.
+      if (car.group.userData.wheels) {
+        const spin = car.speed * timeFactor * 2.4;
+        for (const w of car.group.userData.wheels) w.rotation.x += spin;
+      }
+    }
+  }
+
+  // --- Player truck ↔ NPC collision response ---
+  // Three stages:
+  //   1. Contact test  : oriented truck box vs. car circle (handles the long
+  //                      refuse body correctly).
+  //   2. Depenetration : hard minimum-translation-vector separation split 50/50
+  //                      between the truck and the car (no penetration survives
+  //                      into the next frame → no re-triggering / sticking).
+  //   3. Impulse       : zero the truck speed, add a backward rebound and stun
+  //                      the NPC, with a per-car immunity cooldown.
+  function checkTrafficCollisions() {
+    if (!npcCars.length) return;
+
+    const cosA = Math.cos(truckPhys.angle);
+    const sinA = Math.sin(truckPhys.angle);
+    const halfL = truckPhys.length / 2;
+    const halfW = truckPhys.width / 2;
+
+    const now = performance.now();
+
+    for (const car of npcCars) {
+      // --- Cooldown immunity for THIS car ---
+      // After a crash, the truck and this specific car ignore each other for a
+      // short window so the player can reverse or steer out and the penalty is
+      // never double-charged.
+      if (now - car.lastCollisionTime < NPC_COLLISION_COOLDOWN_MS) continue;
+
+      // --- Phase 1: contact test (truck oriented box vs. car circle) ---
+      const dx = car.x - truckPhys.x;
+      const dz = car.z - truckPhys.z;
+      const localX = dx * cosA - dz * sinA;
+      const localZ = dx * sinA + dz * cosA;
+
+      const closestX = Math.max(-halfW, Math.min(halfW, localX));
+      const closestZ = Math.max(-halfL, Math.min(halfL, localZ));
+      const sepX = localX - closestX;
+      const sepZ = localZ - closestZ;
+      const sepLen = Math.hypot(sepX, sepZ);
+
+      // No contact, or merely resting in contact without real penetration.
+      if (sepLen > NPC_CAR_RADIUS - NPC_CONTACT_SLOP) continue;
+
+      // --- Phase 2: hard separation (minimum translation vector) ---
+      // Local axes in world space (local X = truck right, local Z = truck forward).
+      const rightX = cosA;
+      const rightZ = -sinA;
+      const fwdX = sinA;
+      const fwdZ = cosA;
+
+      let pushX;   // world direction that pushes the TRUCK away from the car
+      let pushZ;
+      let overlap; // penetration depth in metres
+
+      if (sepLen > 0.0001) {
+        // Car centre sits OUTSIDE the truck box: the MTV runs along the car→box
+        // edge. sepX/sepZ is (car centre − closest box point), so the truck is
+        // shoved opposite to it (head-on this reduces to the centre-to-centre
+        // vector with minDist ≈ halfL + carRadius ≈ 6.35 m), and the car takes
+        // the mirrored shove.
+        const sepWorldX = sepX * rightX + sepZ * fwdX;
+        const sepWorldZ = sepX * rightZ + sepZ * fwdZ;
+        const inv = -1 / sepLen;
+        pushX = sepWorldX * inv;
+        pushZ = sepWorldZ * inv;
+        overlap = NPC_CAR_RADIUS - sepLen;
+      } else {
+        // Car centre is INSIDE the truck box (deep hit): eject along the axis of
+        // least penetration so the truck never snaps through to the far side.
+        // `push` is always the direction that moves the TRUCK away from the car,
+        // so here it points to the side OPPOSITE the car's nearest face.
+        const penX = halfW - Math.abs(localX);
+        const penZ = halfL - Math.abs(localZ);
+        if (penX <= penZ) {
+          const s = localX >= 0 ? 1 : -1;
+          pushX = -rightX * s;
+          pushZ = -rightZ * s;
+          overlap = penX + NPC_CAR_RADIUS;
+        } else {
+          const s = localZ >= 0 ? 1 : -1;
+          pushX = -fwdX * s;
+          pushZ = -fwdZ * s;
+          overlap = penZ + NPC_CAR_RADIUS;
+        }
+      }
+
+      if (overlap > 0) {
+        // Split the penetration 50/50 between the truck and the NPC.
+        truckPhys.x += pushX * overlap * 0.5;
+        truckPhys.z += pushZ * overlap * 0.5;
+        car.x -= pushX * overlap * 0.5;
+        car.z -= pushZ * overlap * 0.5;
+      }
+
+      // --- Phase 3: impact impulse ---
+      // The truck's velocity lives in body frame: position += (sin, cos) * speed.
+      const velX = sinA * truckPhys.speed;
+      const velZ = cosA * truckPhys.speed;
+
+      // Zero forward momentum and kick a short rebound straight out of the
+      // contact point (push already points away from the car), decaying over the
+      // next few frames.
+      truckPhys.speed = 0;
+      if (Math.hypot(velX, velZ) > 0.01) {
+        truckPhys.collisionRecoilX = pushX * NPC_RECOIL_IMPULSE;
+        truckPhys.collisionRecoilZ = pushZ * NPC_RECOIL_IMPULSE;
+      }
+
+      // Freeze the NPC and stun it so it cannot drive straight back into us.
+      car.speed = 0;
+      car.stunTimer = NPC_STUN_SECONDS;
+
+      // Mark the crash time on BOTH bodies: the truck latch drives the HUD /
+      // cross-system rate limiting, the per-car stamp drives the immunity.
+      car.lastCollisionTime = now;
+      truckPhys.lastTrafficCollisionTime = now;
+
+      // The instantaneous depenetration above already moved truckPhys, so the
+      // mesh transform applied later this frame (in updatePhysics) reflects it.
+      car.group.position.set(car.x, 0, car.z);
+
+      // --- Phase 4: one-time crash feedback (cooldown was checked above) ---
+      window.soundManager.playCrash();
+      gameState.timePenalty += 5000;
+      showToast('ДТП!', 'Соблюдайте дистанцию (+5 сек штрафа)', '💥', 2500, true);
+      break; // one response per frame is enough
+    }
+  }
+
   // --- Level Initialization ---
   function initLevel() {
     generate3DCity();
 
-    // Pick 8 active bins
-    trashBins3D.sort(() => Math.random() - 0.5);
-    gameState.totalBins = 8;
-    trashBins3D.forEach((bin, idx) => {
-      bin.collected = idx >= gameState.totalBins;
-      bin.mesh.visible = true;
-      if (bin.lidGroup) bin.lidGroup.rotation.x = 0;
-      if (bin.marker) {
-        bin.marker.visible = !bin.collected;
-      }
+    // --- Procedural container placement (Задача: расширенный пул точек) ---
+    // generate3DCity() already removed every previous bin/marker from the scene
+    // and emptied trashBins3D. Pick 12 unique spawn points out of the pool and
+    // hand out a balanced spread of materials (exactly 4 of each type),
+    // shuffled so the pickup order along the route stays random.
+    gameState.totalBins = 12;
+    const binCategories = ['yellow', 'blue', 'green'];
+    const balancedCategories = shuffleCopy(
+      binCategories.flatMap((cat) => [cat, cat, cat, cat])
+    );
+    const chosenSpawns = shuffleCopy(POTENTIAL_BIN_SPAWNS).slice(0, gameState.totalBins);
+    chosenSpawns.forEach((spot, i) => {
+      spawn3DBin(spot.x, spot.z, spot.angle, balancedCategories[i]);
     });
 
-    gameState.collectedBins = 0;
+    gameState.collectedBinsTotal = 0;
     gameState.totalKg = 0;
+    resetCurrentCargo();
     gameState.startTime = Date.now();
     gameState.endTime = null;
     gameState.status = 'collecting';
     gameState.activePromptType = null;
     gameState.targetBin = null;
+    gameState.routeRecorded = false;
+    gameState.timePenalty = 0;
 
     truckPhys.x = -40;
     truckPhys.z = 25;
@@ -2240,6 +3308,10 @@
     truckPhys.arm.active = false;
     truckPhys.arm.state = 'idle';
     truckPhys.isDumpingAtFactory = false;
+    truckPhys.isQuickDumping = false;
+    truckPhys.quickDumpProgress = 0;
+    truckPhys.dumpProgress = 0;
+    tailgateGroup.rotation.x = 0;
     cutsceneActive = false;
     unloadCutsceneActive = false;
     stuckTimer = 0;
@@ -2248,19 +3320,75 @@
     if (pickupOverlay) pickupOverlay.classList.remove('show');
     if (unloadOverlay) unloadOverlay.classList.remove('show');
 
+    // Reset EV state on new route
+    truckPhys.batteryLevel = 100.0;
+    truckPhys.powerFlow = 0;
+    truckPhys.currentCargoWeight = 0;
+    truckPhys.currentBinsInCargo = 0;
+    truckPhys.massFactor = 1.0;
+    truckPhys.isCharging = false;
+    truckPhys.chargingSoundCooldown = 0;
+    truckPhys.ptoOverrideUntil = 0;
+    truckPhys.lowBatteryAlertTriggered = false; // re-arm the ≤15% warning
+    truckPhys.lastTrafficCollisionTime = 0;
+    truckPhys.collisionRecoilX = 0;
+    truckPhys.collisionRecoilZ = 0;
+
+    // Clear any in-flight battery evacuation (blackout overlay + pending timer).
+    isEvacuating = false;
+    clearTimeout(evacuationTimeout);
+    evacuationTimeout = null;
+    if (batteryBlackout) batteryBlackout.classList.remove('show');
+
+    // Derived physics params (scale with mass at runtime)
+    truckPhys.accel = truckPhys.baseAccel;
+    truckPhys.brake = truckPhys.baseBrake;
+    truckPhys.turnSpeed = truckPhys.baseTurnSpeed;
+
+    // Spawn the NPC traffic only after the truck is placed, so the initial
+    // spawn-overlap check uses the correct player position.
+    lastTrafficFrameTime = 0;
+    spawnTraffic();
+
     updateStatsHUD();
     updateTaskHUD();
+    updateBestTimeHUD();
   }
 
   // --- Strict Solid Collision & Vehicle Dynamics ---
   function updatePhysics() {
-    if (cutsceneActive || unloadCutsceneActive || truckPhys.isDumpingAtFactory) {
+    // e-PTO peak override (hydraulic pump). Evaluated before every early exit
+    // so the 240 kW spike stays visible on the cluster for the full arm cycle,
+    // including while the pickup cutscene early-returns below.
+    const ptoPeak = performance.now() < truckPhys.ptoOverrideUntil;
+
+    // Traffic keeps flowing (and braking) even while cutscenes play.
+    updateTraffic(getTrafficDelta());
+
+    if (cutsceneActive || unloadCutsceneActive || truckPhys.isDumpingAtFactory || truckPhys.isQuickDumping) {
       truckPhys.speed *= 0.8;
       if (Math.abs(truckPhys.speed) < 0.005) truckPhys.speed = 0;
+      // EV: regen while coasting to stop during cutscene (minor)
+      truckPhys.powerFlow = ptoPeak ? PTO_PEAK_KW : 0;
+      return;
+    }
+
+    // Battery evacuation: the truck is immobilised while the tow-truck
+    // fade-to-black sequence plays — controls are locked out entirely.
+    if (isEvacuating) {
+      truckPhys.speed = 0;
+      truckPhys.powerFlow = 0;
       return;
     }
 
     const prevSpeed = truckPhys.speed;
+
+    // --- EV Mass Factor (Payload Physics, Task 1) ---
+    // Full cargo (1440 kg) degrades acceleration by 35%, braking by 20%, steering by 18%
+    truckPhys.massFactor = 1.0 - (truckPhys.currentCargoWeight / truckPhys.maxCargoWeight) * 0.35;
+    truckPhys.accel = truckPhys.baseAccel * truckPhys.massFactor;
+    truckPhys.brake = truckPhys.baseBrake * (1.0 - (truckPhys.currentCargoWeight / truckPhys.maxCargoWeight) * 0.20);
+    truckPhys.turnSpeed = truckPhys.baseTurnSpeed * (1.0 - (truckPhys.currentCargoWeight / truckPhys.maxCargoWeight) * 0.18);
 
     // Acceleration & Braking with authentic heavy commercial weight
     if (keys.up) {
@@ -2339,9 +3467,17 @@
       truckPhys.angle = nextAngle;
     } else {
       // Solid collision response: bounce back and damp speed
+      const impactSpeed = Math.abs(truckPhys.speed);
       truckPhys.speed *= -0.28;
       // Do not wedge corners into obstacle when rotating
       truckPhys.angle = prevAngle;
+
+      // --- Crash Audio (Task 2 Audio) ---
+      const now = performance.now();
+      if (impactSpeed > 0.04 && (now - truckPhys.lastTrafficCollisionTime) > 280) {
+        truckPhys.lastTrafficCollisionTime = now;
+        window.soundManager.playCrash();
+      }
     }
 
     // Intelligent Stuck Detection:
@@ -2369,6 +3505,20 @@
     truckPhys.pitch += (-accelRate * 1.6 - truckPhys.pitch) * 0.15;
     truckPhys.roll += (-truckPhys.steerAngle * truckPhys.speed * 0.65 - truckPhys.roll) * 0.15;
 
+    // Player ↔ NPC traffic collision (impulse, penalty, toast).
+    checkTrafficCollisions();
+
+    // Apply any post-crash rebound impulse, then let it decay geometrically so
+    // the truck separates cleanly instead of oscillating inside the car.
+    if (truckPhys.collisionRecoilX !== 0 || truckPhys.collisionRecoilZ !== 0) {
+      truckPhys.x += truckPhys.collisionRecoilX;
+      truckPhys.z += truckPhys.collisionRecoilZ;
+      truckPhys.collisionRecoilX *= 0.35;
+      truckPhys.collisionRecoilZ *= 0.35;
+      if (Math.abs(truckPhys.collisionRecoilX) < 0.001) truckPhys.collisionRecoilX = 0;
+      if (Math.abs(truckPhys.collisionRecoilZ) < 0.001) truckPhys.collisionRecoilZ = 0;
+    }
+
     // Apply to 3D Truck Model
     truckMesh.position.set(truckPhys.x, 0, truckPhys.z);
     truckMesh.rotation.y = truckPhys.angle;
@@ -2381,10 +3531,82 @@
       w.group.children[0].rotation.x += truckPhys.speed * 0.85;
     });
 
-    // Sound Engine Update
+    // --- EV Battery & Power Flow Simulation (Task 2 — precision tuned) ---
+    // 100% → 15% in exactly 1.5 minutes of active driving: 85% drained over
+    // 5400 frames (90 s @ 60 FPS) = 0.0157 %/frame at motorLoad 1.0
+    // (mass-scaled up to +45% when fully laden).
+    //   idle draw    = 0.0016 %/frame,
+    //   regen        = +0.0015 %/frame under engine-braking / coasting.
     const isMoving = Math.abs(truckPhys.speed) > 0.015;
     const isReversing = truckPhys.speed < -0.015;
-    window.soundManager.updateMotor(Math.abs(speedRatio), isMoving, isReversing);
+    const speedRatioAbs = Math.abs(speedRatio);
+
+    if (keys.up && truckPhys.speed >= 0) {
+      // Motoring forward: draw power proportional to motor load.
+      const motorLoad = 0.55 + speedRatioAbs * 0.45;
+      // Payload penalty: up to +45% consumption for a fully laden box.
+      const payloadFactor = 1.0 + (truckPhys.currentCargoWeight / truckPhys.maxCargoWeight) * 0.45;
+      truckPhys.powerFlow = Math.round(motorLoad * payloadFactor * 185); // up to ~185 kW peak
+      truckPhys.batteryLevel = Math.max(0, truckPhys.batteryLevel - 0.0157 * motorLoad * payloadFactor);
+    } else if (keys.down && truckPhys.speed > 0.02) {
+      // Regenerative braking: recover energy (reward for coasting/braking).
+      const regenRate = speedRatioAbs * 0.65;
+      truckPhys.powerFlow = -Math.round(regenRate * 95); // up to -95 kW regen
+      truckPhys.batteryLevel = Math.min(100, truckPhys.batteryLevel + 0.0015);
+    } else if (isMoving) {
+      // Coasting friction regen (minimal)
+      truckPhys.powerFlow = -Math.round(speedRatioAbs * 18);
+      truckPhys.batteryLevel = Math.min(100, truckPhys.batteryLevel + 0.0015);
+    } else {
+      // Standby idle draw (accessories, HVAC, 12V systems)
+      truckPhys.powerFlow = 2; // ~2 kW standby
+      truckPhys.batteryLevel = Math.max(0, truckPhys.batteryLevel - 0.0016);
+    }
+
+    // --- e-PTO peak override (hydraulic pump during bin pickup) ---
+    // While the robotic arm cycle pumps its hydraulics, the instrument cluster
+    // must show the real 240 kW e-PTO spike instead of the driving power flow.
+    if (ptoPeak) {
+      truckPhys.powerFlow = PTO_PEAK_KW;
+    }
+
+    // --- Factory Charging Pad zone (available any time during the shift) ---
+    // The truck charges whenever it is parked within the pad radius, not only
+    // during the unloading cutscene. Leaving the radius stops the charge.
+    const chargeBay = recyclingPlant3D && recyclingPlant3D.chargingBay;
+    const inChargeZone = chargeBay
+      ? Math.hypot(truckPhys.x - chargeBay.x, truckPhys.z - chargeBay.z) < chargeBay.radius
+      : false;
+    truckPhys.isCharging = inChargeZone;
+
+    if (truckPhys.isCharging) {
+      truckPhys.batteryLevel = Math.min(100, truckPhys.batteryLevel + 0.08); // ~4.8%/s → 0→100% in ~21 s
+      truckPhys.powerFlow = -150; // Show -150 kW as charging input
+      if (truckPhys.chargingSoundCooldown > 0) {
+        truckPhys.chargingSoundCooldown -= 1 / 60;
+      } else {
+        window.soundManager.playCharging();
+        truckPhys.chargingSoundCooldown = 1.5;
+      }
+    }
+
+    // Sound Engine Update with live EV power flow
+    window.soundManager.updateMotor(speedRatioAbs, isMoving, isReversing, truckPhys.powerFlow);
+
+    // --- Low Battery Alert (≤15%, with 18% hysteresis to prevent chattering) ---
+    if (truckPhys.batteryLevel <= 15 && !truckPhys.lowBatteryAlertTriggered) {
+      truckPhys.lowBatteryAlertTriggered = true;
+      window.soundManager.playWarningBeep();
+      showToast('НИЗКИЙ ЗАРЯД БАТАРЕИ!', 'Осталось менее 15%. Зарядитесь на эко-заводе ⚡', '🪫', 4000, true);
+    } else if (truckPhys.batteryLevel > 18 && truckPhys.lowBatteryAlertTriggered) {
+      // Re-arm only once the pack has recovered above the hysteresis band.
+      truckPhys.lowBatteryAlertTriggered = false;
+    }
+
+    // --- Battery depletion → tow-truck evacuation ---
+    if (truckPhys.batteryLevel <= 0 && !isEvacuating) {
+      startBatteryEvacuation();
+    }
   }
 
   // --- Robotic Arm Stub (In-world arm replaced by cutscene modal) ---
@@ -2507,7 +3729,7 @@
 
   function resetTruckToRoad() {
     window.soundManager.ensureContext();
-    if (cutsceneActive || unloadCutsceneActive) return;
+    if (cutsceneActive || unloadCutsceneActive || isControlLocked() || truckPhys.isQuickDumping) return;
 
     stuckTimer = 0;
     setStuckPulsing(false);
@@ -2572,6 +3794,75 @@
     showToast('МАШИНА ВЕРНУТА НА ДОРОГУ', 'Эвакуация на безопасную полосу выполнена • Двигатель готов', '🛣️', 2600);
   }
 
+  // ==========================================================================
+  // BATTERY DEPLETION & TOW-TRUCK EVACUATION
+  // --------------------------------------------------------------------------
+  // When the pack hits 0% the truck is immobilised, the screen fades to black
+  // and (after 2.5 s) the vehicle is teleported to the factory charging dock,
+  // the battery is restored to 35% and a +30 s time penalty is applied.
+  // ==========================================================================
+  function getUnloadBayCenter() {
+    if (recyclingPlant3D && recyclingPlant3D.unloadBay) {
+      return {
+        x: recyclingPlant3D.unloadBay.x,
+        z: recyclingPlant3D.unloadBay.z
+      };
+    }
+    // Fallback: recycling plant block centre (i=2, j=2).
+    return { x: 40, z: 40 };
+  }
+
+  function startBatteryEvacuation() {
+    if (isEvacuating) return;
+    isEvacuating = true;
+
+    // Kill momentum and lock controls (updatePhysics early-returns below).
+    truckPhys.batteryLevel = 0;
+    truckPhys.speed = 0;
+    truckPhys.steerAngle = 0;
+    truckPhys.powerFlow = 0;
+    keys.up = keys.down = keys.left = keys.right = false;
+
+    // Warning sound (crash/error buzzer) + alert toast.
+    window.soundManager.playCrash();
+    showToast('БАТАРЕЯ РАЗРЯЖЕНА',
+      'Вызов службы эвакуации (+30 сек штрафа)', '🪫', 2600, true);
+
+    // Fade the screen to black (0.8s CSS transition).
+    if (batteryBlackout) batteryBlackout.classList.add('show');
+
+    // After 2.5 s of blackout: relocate to the factory dock and recharge.
+    clearTimeout(evacuationTimeout);
+    evacuationTimeout = setTimeout(() => {
+      const bay = getUnloadBayCenter();
+      truckPhys.x = bay.x;
+      truckPhys.z = bay.z;
+      truckPhys.angle = 0;
+      truckPhys.speed = 0;
+      truckPhys.steerAngle = 0;
+      truckPhys.pitch = 0;
+      truckPhys.roll = 0;
+      truckPhys.batteryLevel = 35.0;
+      truckPhys.powerFlow = 0;
+      truckPhys.collisionRecoilX = 0;
+      truckPhys.collisionRecoilZ = 0;
+
+      truckMesh.position.set(truckPhys.x, 0, truckPhys.z);
+      truckMesh.rotation.set(0, truckPhys.angle, 0);
+
+      // Penalty to the mission timer.
+      gameState.timePenalty += 30000;
+
+      // Lift the blackout and hand control back to the player.
+      if (batteryBlackout) batteryBlackout.classList.remove('show');
+      isEvacuating = false;
+      evacuationTimeout = null;
+
+      showToast('⚡ ГРУЗОВИК ДОСТАВЛЕН НА ЗАРЯДНУЮ СТАНЦИЮ ЗАВОДА',
+        'Батарея восстановлена до 35%', '⚡', 2800);
+    }, 2500);
+  }
+
   // --- Trash Pickup Cutscene Engine (Мини-видеоролик / Стоп-моушн бортовой камеры) ---
   const pickupVideo = document.getElementById('pickupVideo');
   let hasVideoSource = false;
@@ -2606,8 +3897,34 @@
   let cutsceneStartTime = 0;
   let cutsceneTargetBin = null;
 
+  const PTO_BIN_COST = 3.0;          // % of pack per bin picked up (hydraulic pump)
+  const PTO_PEAK_KW = 240;           // Instantaneous e-PTO peak shown in the cluster
+  const PTO_OVERRIDE_MS = 1600;      // How long the peak stays on the power-flow gauge
+
   function startPickupCutscene(targetBin) {
     if (cutsceneActive) return;
+
+    // e-PTO power gate: without charge left for the hydraulic pump the arm
+    // cannot cycle, so the pickup never starts and the driver gets a warning.
+    if (truckPhys.batteryLevel <= 0) {
+      window.soundManager.playWarningBeep();
+      showToast('НЕДОСТАТОЧНО ЭНЕРГИИ ДЛЯ ГИДРАВЛИКИ 🪫',
+        'Батарея разряжена. Зарядитесь на эко-заводе ⚡', '🪫', 3500, true);
+      return;
+    }
+
+    // Hydraulic pump energy draw: a flat 3% of the pack per container.
+    // Applied before the cycle starts and clamped at 0 — if it bottoms out the
+    // pack the truck is dead on the spot, so the standard tow-truck evacuation
+    // takes over instead of the arm cycle.
+    truckPhys.batteryLevel = Math.max(0, truckPhys.batteryLevel - PTO_BIN_COST);
+    if (truckPhys.batteryLevel <= 0) {
+      startBatteryEvacuation();
+      return;
+    }
+
+    truckPhys.ptoOverrideUntil = performance.now() + PTO_OVERRIDE_MS;
+    truckPhys.powerFlow = PTO_PEAK_KW; // instant reaction on the gauge
 
     cutsceneActive = true;
     cutsceneStartTime = performance.now();
@@ -2616,6 +3933,16 @@
     truckPhys.speed = 0; // stop vehicle during loading
 
     if (pickupOverlay) pickupOverlay.classList.add('show');
+
+    // Bort-camera waste recognition badge (yellow / blue / green category)
+    const binCategory = (targetBin && targetBin.category) || BIN_TYPES.yellow;
+    if (pickupCategoryBadge) {
+      pickupCategoryBadge.classList.remove('cat-yellow', 'cat-blue', 'cat-green');
+      pickupCategoryBadge.classList.add(binCategory.classSuffix || 'cat-yellow');
+    }
+    if (pickupCatDot) pickupCatDot.textContent = binCategory.icon;
+    if (pickupCatName) pickupCatName.textContent = (binCategory.shortName || binCategory.name).toUpperCase();
+
     if (pickupStatusText) pickupStatusText.textContent = '1/6 ЗАХВАТ КОНТЕЙНЕРА...';
     if (pickupTelemetry) pickupTelemetry.textContent = 'ГИДРАВЛИКА: 180 BAR | ДАТЧИКИ: ОК';
 
@@ -2655,12 +3982,30 @@
 
     // Update 3D World state
     if (cutsceneTargetBin) {
-      cutsceneTargetBin.collected = true;
-      cutsceneTargetBin.mesh.visible = true;
-      if (cutsceneTargetBin.marker) cutsceneTargetBin.marker.visible = false;
-      if (cutsceneTargetBin.lidGroup) cutsceneTargetBin.lidGroup.rotation.x = -1.6;
-      gameState.collectedBins++;
-      gameState.totalKg += 120;
+      const bin = cutsceneTargetBin;
+      const materialType = bin.type || (bin.category && bin.category.type) || TYPE_BY_CATEGORY[bin.category && bin.category.id] || 'plastic';
+      const BIN_WEIGHT_KG = 120;
+
+      bin.collected = true;
+      bin.mesh.visible = true;
+      if (bin.marker) bin.marker.visible = false;
+      if (bin.lidGroup) bin.lidGroup.rotation.x = -1.6;
+
+      // --- Trip progress vs. physical hopper load ---
+      // collectedBinsTotal counts every container picked up this shift (never
+      // reset by a mid-route dump); currentBinsInCargo is only the payload
+      // physically riding in the hopper right now.
+      gameState.collectedBinsTotal++;
+      gameState.totalKg += BIN_WEIGHT_KG;
+
+      // --- Separate accounting of collected weight per material type ---
+      gameState.currentCargo.totalKg += BIN_WEIGHT_KG;
+      gameState.currentCargo.breakdown[materialType] =
+        (gameState.currentCargo.breakdown[materialType] || 0) + BIN_WEIGHT_KG;
+
+      // Update live hopper load for EV mass physics
+      truckPhys.currentBinsInCargo = Math.min(truckPhys.maxBins, truckPhys.currentBinsInCargo + 1);
+      truckPhys.currentCargoWeight = truckPhys.currentBinsInCargo * BIN_WEIGHT_KG;
       updateStatsHUD();
       checkMissions();
       startCompactorCycle3D();
@@ -2920,6 +4265,91 @@
     }
   }
 
+  // ==========================================================================
+  // FACTORY UNLOAD DISPATCHER
+  // --------------------------------------------------------------------------
+  // Entering the plant bay can mean one of two things:
+  //   • the shift is complete (collectedBinsTotal === totalBins) → full
+  //     cinematic unload followed by the victory screen;
+  //   • the shift is still running but the hopper holds cargo → a short
+  //     "pit-stop" dump that lightens the truck without ending the route.
+  // ==========================================================================
+  function beginFactoryUnload() {
+    if (gameState.collectedBinsTotal >= gameState.totalBins) {
+      startFactoryUnloadCutscene();
+      return;
+    }
+    if (truckPhys.currentBinsInCargo > 0) {
+      startQuickDump();
+      return;
+    }
+    // Nothing collected yet and nothing to empty — nudge the driver along.
+    showToast('КУЗОВ ПУСТ',
+      `Соберите контейнеры, затем вернитесь для сброса. Прогресс: ${gameState.collectedBinsTotal}/${gameState.totalBins}`,
+      '🗑️', 3000);
+  }
+
+  // --- Intermediate "Pit-stop" Dump (mid-route hopper emptying) ---
+  let quickDumpTimer = null;
+
+  function startQuickDump() {
+    if (truckPhys.isQuickDumping) return;
+
+    truckPhys.isQuickDumping = true;
+    truckPhys.quickDumpProgress = 0;
+    truckPhys.speed = 0;
+    keys.up = keys.down = keys.left = keys.right = false;
+    dumpLockUntil = performance.now() + 1800; // hard input gate, timer-independent
+
+    // Snapshot the load being dropped for telemetry/toast copy.
+    const dumpedBins = truckPhys.currentBinsInCargo;
+    const dumpedKg = dumpedBins * 120;
+
+    // Hydraulic tailgate + trash audio cue (no victory fanfare — route goes on).
+    window.soundManager.playFactoryUnload();
+    window.soundManager.playHydraulicServo(0.9);
+
+    // Dump visuals: tailgate swings open, refuse cascades from the hopper.
+    spawnDetailed3DTrash();
+
+    // Controls stay locked for exactly 1.8 s, then the hopper is emptied.
+    clearTimeout(quickDumpTimer);
+    quickDumpTimer = setTimeout(() => {
+      // Empty only the *physical* payload. gameState.collectedBinsTotal,
+      // gameState.totalKg and the per-material breakdown stay untouched so
+      // the shift keeps its progress and its final result.
+      truckPhys.currentBinsInCargo = 0;
+      truckPhys.currentCargoWeight = 0;
+      truckPhys.massFactor = 1.0;
+      truckPhys.accel = truckPhys.baseAccel;
+      truckPhys.brake = truckPhys.baseBrake;
+      truckPhys.turnSpeed = truckPhys.baseTurnSpeed;
+      truckPhys.isQuickDumping = false;
+      truckPhys.quickDumpProgress = 0;
+      tailgateGroup.rotation.x = 0;
+
+      updateStatsHUD();
+      updateDashboard();
+
+      showToast('ПРОМЕЖУТОЧНЫЙ СБРОС',
+        `Кузов разгружен (-${dumpedKg} кг). Собрано: ${gameState.collectedBinsTotal}/${gameState.totalBins} баков. Продолжайте маршрут! ♻️`,
+        '📦', 3500);
+    }, 1800);
+  }
+
+  // Short hydraulic animation for the pit-stop dump (tailgate up, then back).
+  function updateQuickDump3D() {
+    if (!truckPhys.isQuickDumping) return;
+
+    // ~1.5 s visual sweep, matching the 1.8 s control lock-out.
+    truckPhys.quickDumpProgress = Math.min(1, truckPhys.quickDumpProgress + 0.011);
+    const p = truckPhys.quickDumpProgress;
+    truckPhys.tailgateAngle = p < 0.5 ? p * 2 : (1 - p) * 2;
+    tailgateGroup.rotation.x = truckPhys.tailgateAngle * 1.3;
+
+    if (Math.abs(p - 0.45) < 0.012) spawnDetailed3DTrash();
+  }
+
   function startFactoryUnloadCutscene() {
     if (unloadCutsceneActive) return;
 
@@ -2927,6 +4357,9 @@
     unloadCutsceneStartTime = performance.now();
     truckPhys.speed = 0;
     truckPhys.isDumpingAtFactory = true;
+    // Charging is now driven purely by the factory Charging Pad zone in
+    // updatePhysics(), so the truck recharges whenever it is parked on the pad
+    // (including during this cutscene) instead of only during unloading.
     gameState.status = 'unloading';
     updateTaskHUD();
 
@@ -2934,8 +4367,15 @@
 
     if (unloadOverlay) unloadOverlay.classList.add('show');
     if (unloadStatusText) unloadStatusText.textContent = '1/5 ПРИБЫТИЕ В ШЛЮЗ #1...';
-    const totalKg = gameState.totalKg || 960;
-    if (unloadTelemetry) unloadTelemetry.textContent = `ВЕСОВОЙ МОНИТОР: ${totalKg} КГ | ДАТЧИКИ: ОК`;
+    const cargo = gameState.currentCargo;
+    // On the final delivery `currentCargo` already holds the whole shift. If a
+    // pit-stop emptied the hopper mid-route, fall back to the physical payload
+    // still on board (`totalKg` is the running shift total, not the live load).
+    const totalKg = cargo.totalKg || truckPhys.currentCargoWeight || 0;
+    if (unloadTelemetry) {
+      unloadTelemetry.textContent =
+        `ВЕСОВОЙ МОНИТОР: ${totalKg} КГ | 🟡 ${cargo.breakdown.plastic} · 🔵 ${cargo.breakdown.paper} · 🟢 ${cargo.breakdown.glass}`;
+    }
     if (unloadWeightVal) unloadWeightVal.textContent = `${totalKg} КГ`;
 
     // Sound sequence synchronized with dumping phases
@@ -2963,6 +4403,12 @@
     truckPhys.isDumpingAtFactory = false;
     tailgateGroup.rotation.x = 0;
 
+    // Reset cargo after delivery; stop opportunity charging
+    truckPhys.currentCargoWeight = 0;
+    truckPhys.currentBinsInCargo = 0;
+    truckPhys.isCharging = false;
+    truckPhys.chargingSoundCooldown = 0;
+
     if (unloadOverlay) unloadOverlay.classList.remove('show');
     showVictory();
   }
@@ -2985,7 +4431,7 @@
     let shakeX = 0;
     let shakeY = 0;
 
-    const totalKg = gameState.totalKg || 960;
+    const totalKg = gameState.currentCargo.totalKg || gameState.totalKg || truckPhys.maxCargoWeight;
 
     if (elapsed < 0.70) {
       // 1. Docking & Gate Entry (Frame 1)
@@ -3311,6 +4757,7 @@
     if (truckPhys.dumpProgress >= 1) {
       truckPhys.isDumpingAtFactory = false;
       truckPhys.dumpProgress = 0;
+      truckPhys.currentBinsInCargo = 0;
       tailgateGroup.rotation.x = 0;
       showVictory();
     }
@@ -3318,10 +4765,18 @@
 
   // --- Proximity & Interactive Prompts ---
   function updateInteractions3D() {
-    if (cutsceneActive || unloadCutsceneActive || truckPhys.isDumpingAtFactory) {
+    if (isEvacuating) {
+      hidePrompt();
+      return;
+    }
+    if (cutsceneActive || unloadCutsceneActive || truckPhys.isDumpingAtFactory || truckPhys.isQuickDumping) {
       hidePrompt();
       armIndicator.classList.add('busy');
-      armStatusText.textContent = unloadCutsceneActive ? 'ВЫГРУЗКА НА ЗАВОДЕ...' : 'МАНИПУЛЯТОР РАБОТАЕТ...';
+      armStatusText.textContent = unloadCutsceneActive
+        ? 'ВЫГРУЗКА НА ЗАВОДЕ...'
+        : truckPhys.isQuickDumping
+          ? 'ПРОМЕЖУТОЧНЫЙ СБРОС КУЗОВА...'
+          : 'МАНИПУЛЯТОР РАБОТАЕТ...';
       if (btnGrabAction) {
         btnGrabAction.classList.remove('ready-grab', 'ready-unload');
         btnGrabAction.classList.add('busy');
@@ -3334,20 +4789,32 @@
     armIndicator.classList.remove('busy');
     armStatusText.textContent = 'МАНИПУЛЯТОР ГОТОВ';
 
-    // 1. Check Factory Unload Dock
-    if (gameState.status === 'delivering' && recyclingPlant3D) {
+    // 1. Factory unload dock: a full-shift delivery OR a mid-route pit-stop
+    //    dump. Both require the truck to actually be inside the bay; the
+    //    difference is only what happens after the player confirms.
+    if ((gameState.status === 'collecting' || gameState.status === 'delivering') && recyclingPlant3D) {
       const bay = recyclingPlant3D.unloadBay;
       const d = Math.hypot(truckPhys.x - bay.x, truckPhys.z - bay.z);
       if (d < 16) {
-        gameState.activePromptType = 'unload';
-        showPrompt('ЗОНА РАЗГРУЗКИ ЗАВОДА!', 'Нажмите ПРОБЕЛ, чтобы сдать мусор на переработку ♻️', 'ВЫГРУЗИТЬ');
-        if (btnGrabAction) {
-          btnGrabAction.classList.add('ready-unload');
-          btnGrabAction.classList.remove('ready-grab', 'busy');
-          if (grabBtnText) grabBtnText.textContent = 'ВЫГРУЗИТЬ';
-          if (grabBtnIcon) grabBtnIcon.textContent = '♻️';
+        const shiftComplete = gameState.collectedBinsTotal >= gameState.totalBins;
+        const hasCargo = truckPhys.currentBinsInCargo > 0;
+        if (shiftComplete || hasCargo) {
+          gameState.activePromptType = 'unload';
+          if (shiftComplete) {
+            showPrompt('ЗОНА РАЗГРУЗКИ ЗАВОДА!', 'Нажмите ПРОБЕЛ, чтобы сдать мусор на переработку ♻️', 'ВЫГРУЗИТЬ');
+          } else {
+            showPrompt('ПРОМЕЖУТОЧНЫЙ СБРОС КУЗОВА',
+              `Нажмите ПРОБЕЛ, чтобы разгрузить ${truckPhys.currentBinsInCargo} бак(ов) и продолжить рейс 🚛`,
+              'РАЗГРУЗИТЬ');
+          }
+          if (btnGrabAction) {
+            btnGrabAction.classList.add('ready-unload');
+            btnGrabAction.classList.remove('ready-grab', 'busy');
+            if (grabBtnText) grabBtnText.textContent = shiftComplete ? 'ВЫГРУЗИТЬ' : 'РАЗГРУЗИТЬ';
+            if (grabBtnIcon) grabBtnIcon.textContent = shiftComplete ? '♻️' : '📦';
+          }
+          return;
         }
-        return;
       }
     }
 
@@ -3390,6 +4857,7 @@
   }
 
   function triggerCurrentAction() {
+    if (isEvacuating) return; // controls locked during battery evacuation
     if (cutsceneActive) {
       if (performance.now() - cutsceneStartTime > 250) {
         finishPickupCutscene();
@@ -3406,8 +4874,8 @@
     if (gameState.activePromptType === 'grab' && gameState.targetBin) {
       startPickupCutscene(gameState.targetBin);
       hidePrompt();
-    } else if (gameState.activePromptType === 'unload' && !unloadCutsceneActive) {
-      startFactoryUnloadCutscene();
+    } else if (gameState.activePromptType === 'unload' && !unloadCutsceneActive && !truckPhys.isQuickDumping) {
+      beginFactoryUnload();
       hidePrompt();
     }
   }
@@ -3424,7 +4892,7 @@
   }
 
   function checkMissions() {
-    if (gameState.collectedBins >= gameState.totalBins && gameState.status === 'collecting') {
+    if (gameState.collectedBinsTotal >= gameState.totalBins && gameState.status === 'collecting') {
       gameState.status = 'delivering';
       updateTaskHUD();
       window.soundManager.playVictory();
@@ -3432,43 +4900,131 @@
   }
 
   function showVictory() {
+    // Guard against double-invocation (would duplicate the history entry).
+    if (gameState.routeRecorded) return;
+    gameState.routeRecorded = true;
     gameState.status = 'completed';
     gameState.endTime = Date.now();
-    const durationSec = Math.floor((gameState.endTime - gameState.startTime) / 1000);
+    const rawDurationSec = (gameState.endTime - gameState.startTime) / 1000;
+    // Traffic accidents add a time penalty on top of the actual drive time.
+    const durationSec = Math.floor(rawDurationSec + gameState.timePenalty / 1000);
     const mins = String(Math.floor(durationSec / 60)).padStart(2, '0');
     const secs = String(durationSec % 60).padStart(2, '0');
 
-    resBinsCount.textContent = `${gameState.collectedBins}`;
-    resWeight.textContent = `${gameState.totalKg} кг`;
+    // --- Detailed recyclables breakdown delivered to the plant ---
+    const breakdown = gameState.currentCargo.breakdown;
+    const plasticKg = breakdown.plastic || 0;
+    const paperKg = breakdown.paper || 0;
+    const glassKg = breakdown.glass || 0;
+    const totalKg = plasticKg + paperKg + glassKg || gameState.totalKg;
+
+    // Count of containers per category (120 kg each)
+    const binsFromKg = (kg) => Math.round(kg / 120);
+
+    resBinsCount.textContent = `${gameState.collectedBinsTotal}`;
+    resWeight.textContent = `${totalKg} кг`;
     resTime.textContent = `${mins}:${secs}`;
-    resEcoCO2.textContent = `~${(gameState.totalKg * 0.082).toFixed(1)} кг`;
+    resEcoCO2.textContent = `~${(totalKg * 0.082).toFixed(1)} кг`;
+
+    if (resYellowBins) resYellowBins.textContent = `${binsFromKg(plasticKg)} баков (${plasticKg} кг)`;
+    if (resBlueBins) resBlueBins.textContent = `${binsFromKg(paperKg)} баков (${paperKg} кг)`;
+    if (resGreenBins) resGreenBins.textContent = `${binsFromKg(glassKg)} баков (${glassKg} кг)`;
+
+    // --- Persist the route into the local history log & best-time record ---
+    const result = recordRouteCompletion(durationSec, {
+      plastic: plasticKg,
+      paper: paperKg,
+      glass: glassKg
+    });
+    const stats = result.stats;
+    if (recBestTime) recBestTime.textContent = formatDuration(stats.bestTimeSec);
+    if (recTotalKg) recTotalKg.textContent = `${stats.totalRecycledKg} кг`;
+    if (recRoutes) recRoutes.textContent = `${stats.routesCompleted}`;
+    if (newRecordPill) newRecordPill.style.display = result.isNewRecord ? 'inline-block' : 'none';
+    updateBestTimeHUD();
 
     window.soundManager.playVictory();
     victoryModal.classList.add('show');
     updateTaskHUD();
   }
 
-  function updateStatsHUD() {
-    capacityVal.textContent = `${gameState.collectedBins} / ${gameState.totalBins} баков`;
-    const percent = Math.min(100, Math.round((gameState.collectedBins / gameState.totalBins) * 100));
-    capacityBar.style.width = `${percent}%`;
-    ecoScore.textContent = `${gameState.totalKg} кг сырья`;
+  // Nearest bin that still needs collecting — the same target the GPS arrow
+  // points at, used both by the direction arrow and the objective label.
+  function getNearestUncollectedBin() {
+    let closest = null;
+    let minD = Infinity;
+    for (const bin of trashBins3D) {
+      if (bin.collected) continue;
+      const d = Math.hypot(truckPhys.x - bin.x, truckPhys.z - bin.z);
+      if (d < minD) {
+        minD = d;
+        closest = bin;
+      }
+    }
+    return closest;
   }
 
-  function updateTaskHUD() {
-    if (gameState.status === 'collecting') {
-      taskIcon.textContent = '🗑️';
-      taskText.textContent = `Соберите контейнеры на улицах (${gameState.collectedBins}/${gameState.totalBins})`;
-    } else if (gameState.status === 'delivering') {
-      taskIcon.textContent = '🏭';
-      taskText.textContent = 'Все баки собраны! Везите мусор на ЭКО-ЗАВОД ♻️';
-    } else if (gameState.status === 'unloading') {
-      taskIcon.textContent = '⚡';
-      taskText.textContent = 'Разгрузка мусора в перерабатывающий бункер...';
-    } else if (gameState.status === 'completed' || gameState.status === 'free_drive') {
-      taskIcon.textContent = '✨';
-      taskText.textContent = 'Рейс завершен! Свободная езда по 3D городу.';
+  // Short navigation labels for the current objective (matches map markers).
+  const NAV_BIN_LABELS = {
+    plastic: 'Пластик 🟡',
+    paper: 'Бумага 🔵',
+    glass: 'Стекло 🟢'
+  };
+
+  // --- Right-hand panel: shift progress vs. live hopper load ---
+  // Row 1 tracks the whole shift (collectedBinsTotal / totalBins) and keeps its
+  // value across pit-stop dumps. Row 2 tracks only the physical hopper load
+  // (currentBinsInCargo), so both bars behave independently.
+  function updateStatsHUD() {
+    const shiftPercent = Math.min(100, Math.round((gameState.collectedBinsTotal / (gameState.totalBins || 1)) * 100));
+    shiftProgressVal.textContent = `${gameState.collectedBinsTotal} / ${gameState.totalBins}`;
+    shiftProgressBar.style.width = `${shiftPercent}%`;
+
+    const cargoPercent = Math.min(100, Math.round((truckPhys.currentBinsInCargo / truckPhys.maxBins) * 100));
+    cargoFillVal.textContent = `${truckPhys.currentBinsInCargo} (${truckPhys.currentCargoWeight} кг)`;
+    capacityBar.style.width = `${cargoPercent}%`;
+
+    if (ecoScore) {
+      ecoScore.textContent = `${gameState.totalKg} кг / ${truckPhys.maxCargoWeight} кг`;
     }
+  }
+
+  // --- Centre objective: WHERE to drive next (no load counters here). ---
+  function updateTaskHUD() {
+    let icon = '🗑️';
+    let text = 'Следуйте по маршруту';
+
+    if (gameState.status === 'collecting') {
+      const target = getNearestUncollectedBin();
+      if (target) {
+        icon = '♻️';
+        const label = NAV_BIN_LABELS[target.type] || 'Сырье ♻️';
+        text = `Следуйте к контейнеру: ${label} [Собрано: ${gameState.collectedBinsTotal}/${gameState.totalBins}, В кузове: ${truckPhys.currentBinsInCargo}]`;
+      } else {
+        icon = '🏭';
+        text = 'Маршрут завершен. Доставьте вторсырье на Завод ♻️';
+      }
+    } else if (gameState.status === 'delivering') {
+      icon = '🏭';
+      text = 'Маршрут завершен. Доставьте вторсырье на Завод ♻️';
+    } else if (gameState.status === 'unloading') {
+      icon = '⚡';
+      text = 'Разгрузка шлюза #1 • Очистка кузова';
+    } else if (gameState.status === 'completed' || gameState.status === 'free_drive') {
+      icon = '✨';
+      text = 'Рейс завершен! Свободная езда по 3D городу.';
+    }
+
+    // Critical-charge navigation marker: prepend the low-battery tag to the
+    // live objective while collecting (drives the player toward the plant).
+    if (gameState.status === 'collecting' && truckPhys.batteryLevel <= 15) {
+      text = `⚡ [НИЗКИЙ ЗАРЯД] ${text}`;
+    }
+
+    // Guard the DOM writes: updateTaskHUD now runs every frame from
+    // updateDashboard (the objective follows the moving GPS target).
+    if (taskIcon.textContent !== icon) taskIcon.textContent = icon;
+    if (taskText.textContent !== text) taskText.textContent = text;
   }
 
   function updateDashboard() {
@@ -3483,6 +5039,53 @@
       gearTag.textContent = 'R';
     }
 
+    // --- EV Instrument Cluster Update (Task 2) ---
+    const bat = truckPhys.batteryLevel;
+    const pf = truckPhys.powerFlow;
+    const cargoKg = truckPhys.currentCargoWeight;
+
+    if (batteryVal) batteryVal.textContent = `${Math.round(bat)}%`;
+    if (batteryBar) batteryBar.style.width = `${Math.max(0, Math.min(100, bat))}%`;
+    if (batteryBar) {
+      // Color: green > 40%, amber 20-40%, red < 20%
+      batteryBar.style.background = bat > 40
+        ? 'linear-gradient(90deg, #2ecc71, #27ae60)'
+        : bat > 20
+          ? 'linear-gradient(90deg, #f39c12, #e67e22)'
+          : 'linear-gradient(90deg, #e74c3c, #c0392b)';
+    }
+    if (batteryIcon) {
+      batteryIcon.textContent = bat > 80 ? '🔋' : bat > 40 ? '🔋' : bat > 20 ? '🪫' : '⚡';
+    }
+
+    // Critical-charge pulse: red, blinking readout + icon at ≤15%.
+    const isCritical = bat <= 15;
+    if (batteryVal) batteryVal.classList.toggle('battery-critical-pulse', isCritical);
+    if (batteryIcon) batteryIcon.classList.toggle('battery-critical-pulse', isCritical);
+
+    // Live "charging in progress" readout while parked on the factory pad.
+    if (chargingStatus) chargingStatus.classList.toggle('show', truckPhys.isCharging);
+
+    if (powerFlowVal) {
+      const pfSign = pf < 0 ? '' : '+';
+      powerFlowVal.textContent = `${pfSign}${pf} kW`;
+      powerFlowVal.style.color = pf < -10 ? '#2ecc71' : pf > 0 ? '#e74c3c' : '#95a5a6';
+    }
+    if (powerBarFill) {
+      // Normalize: discharge 0..185 → right, regen -150..0 → left (displayed as 0..100%)
+      const pct = pf >= 0
+        ? Math.min(100, (pf / 185) * 100)
+        : Math.min(100, (Math.abs(pf) / 150) * 100);
+      powerBarFill.style.width = `${pct}%`;
+      powerBarFill.style.background = pf < -10
+        ? 'linear-gradient(90deg, #1abc9c, #2ecc71)'
+        : 'linear-gradient(90deg, #e74c3c, #f39c12)';
+    }
+
+    if (cargoMassVal) {
+      cargoMassVal.textContent = `${Math.round(cargoKg)} кг`;
+    }
+
     // Direction arrow
     let targetX = 0;
     let targetZ = 0;
@@ -3491,16 +5094,7 @@
       targetX = recyclingPlant3D.unloadBay.x;
       targetZ = recyclingPlant3D.unloadBay.z;
     } else {
-      let closest = null;
-      let minD = Infinity;
-      for (const bin of trashBins3D) {
-        if (bin.collected) continue;
-        const d = Math.hypot(truckPhys.x - bin.x, truckPhys.z - bin.z);
-        if (d < minD) {
-          minD = d;
-          closest = bin;
-        }
-      }
+      const closest = getNearestUncollectedBin();
       if (closest) {
         targetX = closest.x;
         targetZ = closest.z;
@@ -3516,12 +5110,39 @@
     } else {
       gpsDistance.textContent = '—';
     }
+
+    // Objective text tracks the live target, so refresh it every frame.
+    updateTaskHUD();
   }
 
   // --- Dynamic 3D Camera Follow ---
   function updateCamera() {
-    // Hide tinted windshield in cockpit view so it never obstructs or darkens lighting
-    windMesh.visible = (cameraMode !== 2);
+    // --- Interior visibility rules ---
+    // Hide the tinted windshield for both the hood and cockpit views so it never
+    // obstructs or darkens the driver's sightline. A-pillars, dashboard and the
+    // steering wheel intentionally stay visible from inside the cab.
+    windMesh.visible = (cameraMode !== 2 && cameraMode !== 3);
+
+    // The minifig head/helmet would sit inside the cockpit camera frustum —
+    // hide them there, keep them in every external view.
+    const cockpitView = (cameraMode === 3);
+    driverHead.visible = !cockpitView;
+    driverHelmet.visible = !cockpitView;
+
+    // Tighten the near plane in the cockpit so the dashboard / wheel never clip.
+    const desiredNear = cockpitView ? 0.08 : 0.4;
+    if (camera.near !== desiredNear) {
+      camera.near = desiredNear;
+      camera.updateProjectionMatrix();
+    }
+
+    // Truck heading basis (forward = (sin, cos), right = (cos, -sin)).
+    const cosA = Math.cos(truckPhys.angle);
+    const sinA = Math.sin(truckPhys.angle);
+
+    // Steering wheel turns proportionally to the front-wheel angle (spins about
+    // its own axis; the -45° X tilt stays intact via Euler XYZ ordering).
+    steerWheel.rotation.z = -truckPhys.steerAngle * 2.5;
 
     if (cameraMode === 0) {
       // Dynamic 3/4 Quarter Chase Perspective (Heroic isometric view showing cab, side arm, studs, and street ahead)
@@ -3587,6 +5208,40 @@
         targetZ + Math.cos(truckPhys.angle) * 35.0
       );
       camera.lookAt(lookTarget);
+
+    } else if (cameraMode === 3) {
+      // --- Cockpit / First-Person: driver's eye on the LEFT seat ---
+      // Left-hand drive: the truck faces +Z, so the left side is local +X.
+      // Local cab offset: ~0.45 m left of centre, driver eye height (~2.2 m
+      // above ground), mid-cab longitudinally (behind the windshield).
+      const EYE_X = 0.45;    // left of centre (local X, +X = truck's left)
+      const EYE_Y = 2.20;    // eye height above ground (world Y)
+      const EYE_Z = 2.70;    // inside the cab, just behind the windshield
+
+      // Micro suspension: lean into corners with body roll, dip on braking.
+      const rollLean = truckPhys.roll * 0.35;
+      const dipLean = truckPhys.pitch * 0.4;
+
+      // Head position in world space (truck yaw only), with a lateral seat sway
+      // from roll and a vertical dip from pitch.
+      const eyeWorldX = truckPhys.x + (EYE_X + rollLean) * cosA + EYE_Z * sinA;
+      const eyeWorldY = EYE_Y + dipLean * 0.5;
+      const eyeWorldZ = truckPhys.z - (EYE_X + rollLean) * sinA + EYE_Z * cosA;
+
+      camera.position.set(eyeWorldX, eyeWorldY, eyeWorldZ);
+
+      // Look forward down the truck's heading, pitched slightly toward the road.
+      const lookAhead = 30.0;
+      const lookHeight = eyeWorldY - 3.2 - dipLean * 2.0;
+      const lookTarget = new THREE.Vector3(
+        truckPhys.x + Math.sin(truckPhys.angle) * lookAhead,
+        lookHeight,
+        truckPhys.z + Math.cos(truckPhys.angle) * lookAhead
+      );
+      camera.lookAt(lookTarget);
+
+      // Bank the horizon into the turn for extra suspension feel.
+      camera.rotateZ(-rollLean * 0.5);
     }
 
     // Keep sunlight shadow coverage tightly anchored to vehicle
@@ -3624,6 +5279,39 @@
       const fx = (recyclingPlant3D.x / (WORLD_SIZE / 2)) * halfW + halfW;
       const fz = (recyclingPlant3D.z / (WORLD_SIZE / 2)) * halfH + halfH;
       mCtx.fillRect(fx - 14, fz - 14, 28, 28);
+    }
+
+    // Charging Pad — bright cyan/green beacon with a ⚡ glyph so the player can
+    // always find a top-up when the pack runs low.
+    if (recyclingPlant3D && recyclingPlant3D.chargingBay) {
+      const cb = recyclingPlant3D.chargingBay;
+      const gx = (cb.x / (WORLD_SIZE / 2)) * halfW + halfW;
+      const gy = (cb.z / (WORLD_SIZE / 2)) * halfH + halfH;
+      const r = Math.max(5, cb.radius * scale);
+
+      mCtx.save();
+      // Soft outer glow ring
+      mCtx.beginPath();
+      mCtx.arc(gx, gy, r, 0, Math.PI * 2);
+      mCtx.fillStyle = 'rgba(0, 210, 211, 0.28)';
+      mCtx.fill();
+      mCtx.lineWidth = 1.5;
+      mCtx.strokeStyle = '#00d2d3';
+      mCtx.stroke();
+
+      // Solid inner disc
+      mCtx.beginPath();
+      mCtx.arc(gx, gy, r * 0.5, 0, Math.PI * 2);
+      mCtx.fillStyle = '#2ecc71';
+      mCtx.fill();
+
+      // Lightning glyph
+      mCtx.font = 'bold 10px Outfit, monospace';
+      mCtx.textAlign = 'center';
+      mCtx.textBaseline = 'middle';
+      mCtx.fillStyle = '#0b0f14';
+      mCtx.fillText('⚡', gx, gy + 0.5);
+      mCtx.restore();
     }
 
     // Bins
@@ -3712,6 +5400,7 @@
     updatePhysics();
     updateRoboticArm3D();
     updateFactoryUnload3D();
+    updateQuickDump3D();
     update3DParticles();
     updateInteractions3D();
     updateBinMarkers3D();

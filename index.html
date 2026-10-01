@@ -34,7 +34,7 @@
         <div class="task-icon" id="taskIcon">🗑️</div>
         <div class="task-details">
           <div class="task-label">ТЕКУЩАЯ ЗАДАЧА</div>
-          <div class="task-text" id="taskText">Соберите контейнеры на улицах города</div>
+          <div class="task-text" id="taskText">Следуйте по маршруту</div>
         </div>
         <div class="gps-pointer" id="gpsPointer" title="Направление к цели">
           <div class="gps-arrow" id="gpsArrow">▲</div>
@@ -45,22 +45,41 @@
       <!-- Capacity & Stats -->
       <div class="hud-card stats-card">
         <div class="stat-group">
-          <div class="stat-header">
-            <span>ЗАПОЛНЕНИЕ КУЗОВА</span>
-            <span class="stat-value" id="capacityVal">0 / 8 баков</span>
+          <!-- Row 1: overall shift progress (every container picked up so far) -->
+          <div class="stat-row">
+            <span class="stat-label">Собрано баков</span>
+            <span class="stat-value" id="shiftProgressVal">0 / 12</span>
+          </div>
+          <div class="progress-bar-bg">
+            <div class="progress-bar-fill shift-fill" id="shiftProgressBar" style="width: 0%"></div>
+          </div>
+
+          <!-- Row 2: physical hopper load right now (drops to 0 after every dump) -->
+          <div class="stat-row">
+            <span class="stat-label">В кузове</span>
+            <span class="stat-value" id="cargoFillVal">0 (0 кг)</span>
           </div>
           <div class="progress-bar-bg">
             <div class="progress-bar-fill" id="capacityBar" style="width: 0%"></div>
           </div>
         </div>
-        <div class="eco-score-badge">
-          <span class="eco-icon">🌱</span>
-          <span id="ecoScore">0 кг сырья</span>
+        <div class="hud-badge-stack">
+          <div class="eco-score-badge">
+            <span class="eco-icon">🌱</span>
+            <span id="ecoScore">0 кг / 1440 кг</span>
+          </div>
+          <div class="eco-score-badge best-time-badge" id="bestTimeBadge" title="Лучшее время рейса (личный рекорд)">
+            <span class="eco-icon">🏆</span>
+            <span id="bestTimeHud">--:--</span>
+          </div>
         </div>
       </div>
 
-      <!-- Audio / Camera / Unstuck / Help buttons -->
+      <!-- Audio / Camera / Unstuck / Records / Help buttons -->
       <div class="hud-controls-group">
+        <button id="recordsBtn" class="hud-btn" title="Личные рекорды и статистика [L]" aria-label="Рекорды">
+          <span>🏆</span>
+        </button>
         <button id="unstuckBtn" class="hud-btn unstuck-btn" title="Вернуть на дорогу при застревании [R]" aria-label="Вернуть на дорогу">
           <span class="unstuck-icon">🛣️</span>
           <span class="unstuck-key-hint">R</span>
@@ -87,6 +106,7 @@
         <span><i class="dot truck-dot"></i> Вы</span>
         <span><i class="dot bin-dot"></i> Бак</span>
         <span><i class="dot plant-dot"></i> Завод</span>
+        <span><i class="dot charge-dot"></i> ⚡ Зарядка</span>
       </div>
     </div>
 
@@ -109,16 +129,62 @@
       <button class="prompt-action-btn" id="promptActionBtn">ЗАБРАТЬ</button>
     </div>
 
-    <!-- Bottom Left Speed & Dashboard -->
+    <!-- Bottom Left Speed & Dashboard (Mack LR Electric Digital Cluster) -->
     <div class="hud-bottom-left">
       <div class="speedometer-card">
-        <div class="speed-value" id="speedValue">0</div>
-        <div class="speed-unit">КМ/Ч</div>
-        <div class="gear-tag" id="gearTag">P</div>
+        <div class="speed-cluster">
+          <div class="speed-value" id="speedValue">0</div>
+          <div class="speed-meta">
+            <span class="speed-unit">КМ/Ч</span>
+            <span class="gear-tag" id="gearTag">P</span>
+          </div>
+        </div>
+
+        <div class="ev-telemetry-divider"></div>
+
+        <div class="ev-energy-cluster">
+          <!-- Battery State of Charge -->
+          <div class="battery-status-row">
+            <div class="battery-label-group">
+              <span class="battery-icon" id="batteryIcon">🔋</span>
+              <span class="battery-label">БАТАРЕЯ</span>
+            </div>
+            <span class="battery-percent" id="batteryVal">100%</span>
+          </div>
+          <div class="battery-progress-bg">
+            <div class="battery-progress-fill" id="batteryBar" style="width: 100%"></div>
+          </div>
+
+          <!-- Dynamic Power Flow Indicator (Charge / Power) -->
+          <div class="power-meter-container">
+            <div class="power-meter-header">
+              <span class="meter-charge-tag">CHARGE</span>
+              <span class="meter-flow-val" id="powerFlowVal">0 кВт</span>
+              <span class="meter-power-tag">POWER</span>
+            </div>
+            <div class="power-track">
+              <div class="power-center-tick"></div>
+              <div class="power-flow-bar" id="powerBarFill"></div>
+            </div>
+          </div>
+
+          <!-- Live Charging Pad status -->
+          <div class="charging-status" id="chargingStatus">
+            <span class="charging-status-icon">⚡</span>
+            <span class="charging-status-text" id="chargingStatusText">ИДЕТ ЗАРЯДКА MACK EV ⚡ (+150 kW)</span>
+          </div>
+        </div>
       </div>
-      <div class="hydraulic-status" id="hydraulicStatus">
-        <span class="status-indicator" id="armIndicator"></span>
-        <span id="armStatusText">МАНИПУЛЯТОР ГОТОВ</span>
+
+      <div class="dashboard-secondary-row">
+        <div class="hydraulic-status" id="hydraulicStatus">
+          <span class="status-indicator" id="armIndicator"></span>
+          <span id="armStatusText">МАНИПУЛЯТОР ГОТОВ</span>
+        </div>
+        <div class="cargo-mass-card" id="cargoMassCard" title="Масса груза и динамика">
+          <span class="cargo-icon">⚖️</span>
+          <span class="cargo-text" id="cargoMassVal">0 / 1440 кг (100%)</span>
+        </div>
       </div>
     </div>
 
@@ -178,7 +244,7 @@
       <div class="hint-item"><kbd>◀</kbd><kbd>▶</kbd> Руль</div>
       <div class="hint-item"><kbd>ПРОБЕЛ</kbd> Манипулятор / Выгрузка</div>
       <div class="hint-item"><kbd>R</kbd> Вернуть на дорогу (эвакуация)</div>
-      <div class="hint-item"><kbd>C</kbd> Камера (3D / Сверху / От капота)</div>
+      <div class="hint-item"><kbd>C</kbd> Камера (3D / Сверху / Капот / Кабина)</div>
       <div class="hint-item"><kbd>H</kbd> Сигнал</div>
     </footer>
 
@@ -187,6 +253,10 @@
       <div class="pickup-window">
         <div class="pickup-header">
           <div class="rec-indicator"><span class="rec-dot"></span> REC • БОРТОВАЯ КАМЕРА ЗАГРУЗКИ MACK EV</div>
+          <div class="pickup-category-badge" id="pickupCategoryBadge">
+            <span class="cat-dot" id="pickupCatDot">🟡</span>
+            <span class="cat-name" id="pickupCatName">ПЛАСТИК / МЕТАЛЛ</span>
+          </div>
           <div class="pickup-telemetry" id="pickupTelemetry">ГИДРАВЛИКА: 240 BAR | ДАТЧИКИ: ОК</div>
         </div>
         <div class="pickup-canvas-wrapper">
@@ -227,7 +297,7 @@
         <div class="pickup-footer unload-footer">
           <div class="pickup-gauge">
             <span class="gauge-label">СДАЧА НА ПЕРЕРАБОТКУ:</span>
-            <span class="gauge-val green-val" id="unloadWeightVal">960 КГ</span>
+            <span class="gauge-val green-val" id="unloadWeightVal">0 КГ</span>
           </div>
           <div class="pickup-skip-hint">
             <span class="desktop-hint">Нажмите <kbd>ПРОБЕЛ</kbd> или кликните</span>
@@ -237,22 +307,32 @@
       </div>
     </div>
 
+    <!-- Battery Depletion Blackout (Эвакуация при 0% заряда) -->
+    <div class="battery-blackout" id="batteryBlackout">
+      <div class="battery-blackout-inner">
+        <div class="battery-blackout-icon">🪫</div>
+        <div class="battery-blackout-title">БАТАРЕЯ РАЗРЯЖЕНА</div>
+        <div class="battery-blackout-sub">Вызов службы эвакуации на завод…</div>
+        <div class="battery-blackout-progress"><span></span></div>
+      </div>
+    </div>
+
     <!-- Victory / Mission Complete Modal -->
     <div class="modal-backdrop" id="victoryModal">
       <div class="modal-card">
         <div class="modal-header">
-          <div class="trophy-badge">🏆</div>
-          <h2 class="modal-title">РЕЙС УСПЕШНО ЗАВЕРШЕН!</h2>
-          <p class="modal-subtitle">Все улицы очищены, а вторсырье доставлено на переработку</p>
+          <div class="trophy-badge" id="modalTrophyBadge">🏆</div>
+          <h2 class="modal-title" id="modalTitle">РЕЙС УСПЕШНО ЗАВЕРШЕН!</h2>
+          <p class="modal-subtitle">Все улицы очищены, а раздельное сырье доставлено на эко-завод</p>
         </div>
 
         <div class="results-grid">
           <div class="result-box">
-            <div class="result-number" id="resBinsCount">8</div>
+            <div class="result-number" id="resBinsCount">12</div>
             <div class="result-label">Контейнеров собрано</div>
           </div>
           <div class="result-box">
-            <div class="result-number" id="resWeight">960 кг</div>
+            <div class="result-number" id="resWeight">1440 кг</div>
             <div class="result-label">Переработано мусора</div>
           </div>
           <div class="result-box">
@@ -262,6 +342,52 @@
           <div class="result-box eco-box">
             <div class="result-number" id="resEcoCO2">~14.2 кг</div>
             <div class="result-label">Сэкономлено CO₂</div>
+          </div>
+        </div>
+
+        <!-- Sorting Breakdown Section (Задача 3) -->
+        <div class="modal-section-title">РАЗДЕЛЬНЫЙ СБОР СЫРЬЯ</div>
+        <div class="sorting-breakdown-grid">
+          <div class="sort-badge-card sort-yellow">
+            <span class="sort-badge-icon">🟡</span>
+            <div class="sort-badge-info">
+              <div class="sort-badge-title">Пластик & Металл</div>
+              <div class="sort-badge-val" id="resYellowBins">0 баков (0 кг)</div>
+            </div>
+          </div>
+          <div class="sort-badge-card sort-blue">
+            <span class="sort-badge-icon">🔵</span>
+            <div class="sort-badge-info">
+              <div class="sort-badge-title">Бумага & Картон</div>
+              <div class="sort-badge-val" id="resBlueBins">0 баков (0 кг)</div>
+            </div>
+          </div>
+          <div class="sort-badge-card sort-green">
+            <span class="sort-badge-icon">🟢</span>
+            <div class="sort-badge-info">
+              <div class="sort-badge-title">Стекло & Банки</div>
+              <div class="sort-badge-val" id="resGreenBins">0 баков (0 кг)</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Meta-Progression Records Section (Задача 6) -->
+        <div class="modal-section-title">
+          <span>ЛИЧНЫЙ РЕКОРД (КАРЬЕРА)</span>
+          <span class="new-record-pill" id="newRecordPill" style="display: none;">НОВЫЙ РЕКОРД! ⚡</span>
+        </div>
+        <div class="records-grid">
+          <div class="record-box">
+            <div class="record-val highlight" id="recBestTime">--:--</div>
+            <div class="record-lbl">Лучшее время</div>
+          </div>
+          <div class="record-box">
+            <div class="record-val" id="recTotalKg">0 кг</div>
+            <div class="record-lbl">Всего переработано</div>
+          </div>
+          <div class="record-box">
+            <div class="record-val" id="recRoutes">0</div>
+            <div class="record-lbl">Очищено маршрутов</div>
           </div>
         </div>
 
@@ -276,6 +402,67 @@
       </div>
     </div>
 
+    <!-- Standalone Career Records Modal (Задача 6) -->
+    <div class="modal-backdrop" id="recordsModal">
+      <div class="modal-card help-card">
+        <button class="modal-close" id="recordsCloseBtn">✕</button>
+        <div class="modal-header">
+          <div class="trophy-badge">🏆</div>
+          <h2 class="modal-title">КАРЬЕРА И РЕКОРДЫ ВОДИТЕЛЯ</h2>
+          <p class="modal-subtitle">Статистика сохраняется локально в памяти браузера</p>
+        </div>
+        <div class="records-grid" style="margin-bottom: 20px;">
+          <div class="record-box">
+            <div class="record-val highlight" id="careerBestTime">--:--</div>
+            <div class="record-lbl">Лучшее время рейса</div>
+          </div>
+          <div class="record-box">
+            <div class="record-val" id="careerTotalKg">0 кг</div>
+            <div class="record-lbl">Всего вторсырья</div>
+          </div>
+          <div class="record-box">
+            <div class="record-val" id="careerRoutes">0</div>
+            <div class="record-lbl">Очищено улиц</div>
+          </div>
+        </div>
+
+        <div class="modal-section-title">СУММАРНО ПО КАТЕГОРИЯМ</div>
+        <div class="sorting-breakdown-grid" style="margin-bottom: 24px;">
+          <div class="sort-badge-card sort-yellow">
+            <span class="sort-badge-icon">🟡</span>
+            <div class="sort-badge-info">
+              <div class="sort-badge-title">Пластик & Металл</div>
+              <div class="sort-badge-val" id="careerYellowVal">0 кг</div>
+            </div>
+          </div>
+          <div class="sort-badge-card sort-blue">
+            <span class="sort-badge-icon">🔵</span>
+            <div class="sort-badge-info">
+              <div class="sort-badge-title">Бумага & Картон</div>
+              <div class="sort-badge-val" id="careerBlueVal">0 кг</div>
+            </div>
+          </div>
+          <div class="sort-badge-card sort-green">
+            <span class="sort-badge-icon">🟢</span>
+            <div class="sort-badge-info">
+              <div class="sort-badge-title">Стекло & Банки</div>
+              <div class="sort-badge-val" id="careerGreenVal">0 кг</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-section-title">
+          <span>ИСТОРИЯ ЗАЕЗДОВ</span>
+          <span class="history-hint">дата · время · разбивка</span>
+        </div>
+        <div class="history-list" id="careerHistoryList">
+          <div class="history-empty">Пока нет завершённых рейсов.<br>Соберите все баки и сдайте сырьё на завод!</div>
+        </div>
+
+        <button class="btn-primary full-width" id="recordsOkBtn">ОТЛИЧНО, ПРОДОЛЖИТЬ</button>
+      </div>
+    </div>
+
     <!-- Help / Info Modal -->
     <div class="modal-backdrop" id="helpModal">
       <div class="modal-card help-card">
@@ -285,29 +472,29 @@
           <div class="help-section">
             <div class="help-step-num">1</div>
             <div>
-              <strong>Ездите по улицам города</strong>
-              <p>Используйте стрелочки на клавиатуре или кнопки на экране, чтобы объезжать кварталы.</p>
+              <strong>Ездите по улицам города и следите за трафиком</strong>
+              <p>Используйте стрелочки или кнопки на экране. Объезжайте легковые автомобили NPC на дорогах — столкновение начисляет штраф по времени!</p>
             </div>
           </div>
           <div class="help-section">
             <div class="help-step-num">2</div>
             <div>
-              <strong>Забирайте мусорные баки</strong>
-              <p>Подъезжайте к баку правым бортом. Нажмите <b>ПРОБЕЛ</b> или большую зеленую кнопку <b>ЗАБРАТЬ</b> на экране — откроется окно бортовой камеры забора вторсырья!</p>
+              <strong>Раздельный сбор сырья и масса груза</strong>
+              <p>Собирайте баки 🟡 Пластика, 🔵 Бумаги и 🟢 Стекла. По мере заполнения кузова (+120 кг за бак) машина становится тяжелее, удлиняется тормозной путь и возрастает крен на поворотах.</p>
             </div>
           </div>
           <div class="help-section">
             <div class="help-step-num">3</div>
             <div>
-              <strong>Доставьте мусор на завод</strong>
-              <p>Когда все баки будут собраны, GPS стрелка приведет вас на Завод Утилизации. Заезжайте в зону разгрузки и нажмите <b>ПРОБЕЛ</b> или <b>ВЫГРУЗИТЬ</b> на экране!</p>
+              <strong>Электротяга, рекуперация и зарядная станция</strong>
+              <p>Следите за шкалой батареи. При торможении и накате работает <b>рекуперация</b> (возврат до 15% энергии). Если заряд иссяк, заезжайте на светящуюся <b>Зарядную станцию ⚡</b> у завода для мгновенной подзарядки!</p>
             </div>
           </div>
           <div class="help-section">
             <div class="help-step-num">4</div>
             <div>
-              <strong>Застряли в препятствии?</strong>
-              <p>Нажмите клавишу <kbd>R</kbd> на клавиатуре или кнопку <b>🛣️ «На дорогу»</b> вверху экрана — грузовик моментально вернется на безопасную полосу движения!</p>
+              <strong>Доставьте сырье на эко-завод</strong>
+              <p>После сбора всех контейнеров следуйте за GPS-стрелкой на завод и заезжайте в шлюз разгрузки. Нажмите <b>ПРОБЕЛ</b> или <b>ВЫГРУЗИТЬ</b>!</p>
             </div>
           </div>
         </div>
