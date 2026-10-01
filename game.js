@@ -115,6 +115,12 @@
   const ROAD_W = 16.5;
   const SIDEWALK_W = 3.4;
   const gridCoords = [-120, -40, 40, 120];
+  // The drivable road grid is deliberately decoupled from WORLD_SIZE (420, the
+  // grass plane). Roads are cut off right after the outermost intersections
+  // (±120), so they span exactly ±ROAD_EDGE (±128) — the perimeter belt (with
+  // its buildings and forest) starts straight past the kerb, with no leftover
+  // asphalt strip behind it. Traffic and the truck share these same bounds.
+  const ROAD_EDGE = 128;
 
   // --- Three.js WebGL Setup ---
   const canvas = document.getElementById('gameCanvas');
@@ -1806,32 +1812,39 @@
     ground.receiveShadow = true;
     scene.add(ground);
 
-    // Seamless Asphalt Roads
+    // Asphalt Roads — cut off right after the outermost intersections so the
+    // perimeter sidewalks sit flush against the kerb (ROAD_EDGE = ±128).
+    const ROAD_LEN = 2 * ROAD_EDGE;
     const matRoad = new THREE.MeshStandardMaterial({ color: 0x22262c, roughness: 0.65 });
     gridCoords.forEach(gz => {
-      const road = new THREE.Mesh(new THREE.PlaneGeometry(WORLD_SIZE, ROAD_W), matRoad);
+      const road = new THREE.Mesh(new THREE.PlaneGeometry(ROAD_LEN, ROAD_W), matRoad);
       road.rotateX(-Math.PI / 2);
       road.position.set(0, 0.02, gz);
       road.receiveShadow = true;
+      road.matrixAutoUpdate = false;
+      road.updateMatrix();
       scene.add(road);
     });
     gridCoords.forEach(gx => {
-      const road = new THREE.Mesh(new THREE.PlaneGeometry(ROAD_W, WORLD_SIZE), matRoad);
+      const road = new THREE.Mesh(new THREE.PlaneGeometry(ROAD_W, ROAD_LEN), matRoad);
       road.rotateX(-Math.PI / 2);
       road.position.set(gx, 0.025, 0);
       road.receiveShadow = true;
+      road.matrixAutoUpdate = false;
+      road.updateMatrix();
       scene.add(road);
     });
 
     const matZebra = new THREE.MeshStandardMaterial({ color: 0xf5f6fa, roughness: 0.4 });
 
     // Road Markings (Dashed Centerlines, White Shoulder Borders, Blue Bike Lanes, Stop Bars)
+    // Only the three mid-block runs survive: the former outer stubs sat beyond
+    // the ±120 intersections, i.e. on top of the perimeter belt, and the road
+    // itself now stops at ±ROAD_EDGE (±128).
     const roadIntervals = [
-      { start: -240, end: -135 },
       { start: -105, end: -55 },
       { start: -25, end: 25 },
-      { start: 55, end: 105 },
-      { start: 135, end: 240 }
+      { start: 55, end: 105 }
     ];
 
     // Horizontal road markings
@@ -1923,17 +1936,20 @@
     });
 
     // Crosswalks & Stop Bars
+    // The outermost intersections sit at ±120; their outer crossings would land
+    // past the kerb (±128) now that the roads end there, so they are skipped.
+    const onRoad = (v) => Math.abs(v) <= ROAD_EDGE - 0.5;
     gridCoords.forEach(gx => {
       gridCoords.forEach(gz => {
-        createZebra(gx, gz - ROAD_W / 2 - 2.5, true);
-        createZebra(gx, gz + ROAD_W / 2 + 2.5, true);
-        createZebra(gx - ROAD_W / 2 - 2.5, gz, false);
-        createZebra(gx + ROAD_W / 2 + 2.5, gz, false);
+        if (onRoad(gz - ROAD_W / 2 - 2.5)) createZebra(gx, gz - ROAD_W / 2 - 2.5, true);
+        if (onRoad(gz + ROAD_W / 2 + 2.5)) createZebra(gx, gz + ROAD_W / 2 + 2.5, true);
+        if (onRoad(gx - ROAD_W / 2 - 2.5)) createZebra(gx - ROAD_W / 2 - 2.5, gz, false);
+        if (onRoad(gx + ROAD_W / 2 + 2.5)) createZebra(gx + ROAD_W / 2 + 2.5, gz, false);
 
-        createStopBar(gx, gz - ROAD_W / 2 - 5.5, true);
-        createStopBar(gx, gz + ROAD_W / 2 + 5.5, true);
-        createStopBar(gx - ROAD_W / 2 - 5.5, gz, false);
-        createStopBar(gx + ROAD_W / 2 + 5.5, gz, false);
+        if (onRoad(gz - ROAD_W / 2 - 5.5)) createStopBar(gx, gz - ROAD_W / 2 - 5.5, true);
+        if (onRoad(gz + ROAD_W / 2 + 5.5)) createStopBar(gx, gz + ROAD_W / 2 + 5.5, true);
+        if (onRoad(gx - ROAD_W / 2 - 5.5)) createStopBar(gx - ROAD_W / 2 - 5.5, gz, false);
+        if (onRoad(gx + ROAD_W / 2 + 5.5)) createStopBar(gx + ROAD_W / 2 + 5.5, gz, false);
 
         const mh = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 0.85, 0.03, 16), getManholeMaterial());
         mh.position.set(gx, 0.035, gz);
@@ -2004,6 +2020,479 @@
         createResidentialBlock3D(centerX, centerZ, blockW, blockD, i, j);
       }
     }
+
+    // Fill the empty ring outside the outermost roads (blocks can only span the
+    // inner grid), so the skyline reads as one continuous city instead of
+    // fading into an empty green field.
+    createCityPerimeter(gridCoords, WORLD_SIZE);
+  }
+
+  // ==========================================================================
+  // OUTER-CITY PERIMETER — Фоновая застройка внешнего пояса
+  // --------------------------------------------------------------------------
+  // The paved grid ends at ±ROAD_EDGE (±128, right after the outermost
+  // intersections at ±120); this fills the ring between that kerb and ~185 with
+  // warehouses, terraced housing, park forest and street furniture. The
+  // perimeter sits flush against the kerb — no leftover asphalt behind it.
+  //
+  // Performance contract (60 FPS on phones):
+  //   * no bins spawn here — all gameplay stays inside the paved grid;
+  //   * only bulk structures (houses, hangars, silos) contribute a collider, so
+  //     the truck crashes into them while trees/fences/lamps stay decorative;
+  //   * every static mesh gets `matrixAutoUpdate = false`, so its matrix is
+  //     composed once at build time instead of every frame;
+  //   * repeated props (trees, shipping containers) are batched through
+  //     THREE.InstancedMesh — a few draw calls for hundreds of props;
+  //   * every root is registered in `buildings3D`, so initLevel() clears the
+  //     whole belt on a level restart.
+  // ==========================================================================
+  function createCityPerimeter(gridCoords, WORLD_SIZE) {
+    const EDGE = Math.abs(gridCoords[gridCoords.length - 1]);        // 120
+    const BELT_INNER = ROAD_EDGE;                                    // 128 = kerb line
+    const BELT_OUTER = WORLD_SIZE / 2 - 25;                          // 185
+    const FRONT = BELT_INNER + 18;                                   // terraced row
+    const BACK = BELT_OUTER - 12;                                    // backdrop row
+    const CORNER = (BELT_INNER + BELT_OUTER) / 2;                    // ~156.6
+
+    // ======================================================================
+    // PHYSICAL FOOTPRINTS
+    // The heavy background structures are solid: the refuse truck crashes into
+    // them instead of driving through. Trees, fences and lamps stay purely
+    // decorative, so the collider list grows by ~40 AABBs only.
+    // ======================================================================
+    const addCollider = (x, z, halfW, halfD, margin) => {
+      const m = (margin === undefined) ? 1.2 : margin;
+      colliders.push({
+        minX: x - halfW - m,
+        maxX: x + halfW + m,
+        minZ: z - halfD - m,
+        maxZ: z + halfD + m
+      });
+    };
+
+    // ---- Shared material palette (one allocation per generated city) --------
+    const matYard = new THREE.MeshStandardMaterial({ color: 0x8d99ae, roughness: 0.9 });
+    const matPave = new THREE.MeshStandardMaterial({ color: 0xb2bec3, roughness: 0.85 });
+    const matWallLight = new THREE.MeshStandardMaterial({ color: 0xf5f6fa, roughness: 0.45 });
+    const matWallCool = new THREE.MeshStandardMaterial({ color: 0xdfe4ea, roughness: 0.45 });
+    const matWallWarm = new THREE.MeshStandardMaterial({ color: 0xf7f1e3, roughness: 0.45 });
+    const matRoofDark = new THREE.MeshStandardMaterial({ color: 0x2f3640, roughness: 0.6 });
+    const matRoofBlue = new THREE.MeshStandardMaterial({ color: 0x1e3a5f, roughness: 0.55 });
+    const matWallSteel = new THREE.MeshStandardMaterial({ color: 0x3d4451, roughness: 0.5, metalness: 0.15 });
+    const matGlassWarm = new THREE.MeshStandardMaterial({ color: 0xfff3c4, emissive: 0xfff3c4, emissiveIntensity: 0.38, roughness: 0.15 });
+    const matFence = new THREE.MeshStandardMaterial({ color: 0x57606f, roughness: 0.7 });
+    const matSteel = new THREE.MeshStandardMaterial({ color: 0x7f8c8d, roughness: 0.35, metalness: 0.5 });
+    const matLampPole = new THREE.MeshStandardMaterial({ color: 0x1e272e, roughness: 0.5 });
+    const matLampGlass = new THREE.MeshStandardMaterial({ color: 0xfffa65, emissive: 0xfffa65, emissiveIntensity: 0.85 });
+    const matRoofSlate = new THREE.MeshStandardMaterial({ color: 0x5d6d7e, roughness: 0.6 });
+    const matConcrete = new THREE.MeshStandardMaterial({ color: 0x9aa0a6, roughness: 0.85 });
+    const matHazard = new THREE.MeshStandardMaterial({ color: 0xe74c3c, roughness: 0.5 });
+    const matSignWhite = new THREE.MeshStandardMaterial({ color: 0xf5f6fa, roughness: 0.4 });
+
+    // ======================================================================
+    // BATCHING
+    // Every prop is reduced to a bare Matrix4 and flushed at the end through
+    // a handful of InstancedMeshes. 200+ background objects therefore cost
+    // only a few draw calls instead of hundreds of them.
+    // ======================================================================
+    const batches = [];  // { geom, mat, list, shadow, receive }
+
+    const makeBatcher = (geom, mat, opts) => {
+      const batch = {
+        geom,
+        mat,
+        list: [],
+        shadow: !opts || opts.shadow !== false,
+        receive: !!(opts && opts.receive)
+      };
+      batches.push(batch);
+      return batch;
+    };
+
+    // Reusable scratch objects — no per-call allocation in the build loops.
+    const _p = new THREE.Vector3();
+    const _q = new THREE.Quaternion();
+    const _s = new THREE.Vector3(1, 1, 1);
+    const _e = new THREE.Euler();
+    const _m = new THREE.Matrix4();
+
+    // Push a transform into a batch (world-space axis aligned box).
+    const pushBox = (batch, x, y, z, sx, sy, sz, rotY, rotX) => {
+      _e.set(rotX || 0, rotY || 0, 0);
+      _q.setFromEuler(_e);
+      _p.set(x, y, z);
+      _s.set(sx, sy, sz);
+      _m.compose(_p, _q, _s);
+      batch.list.push(_m.clone());
+    };
+
+    // Push a uniform-scaled prop (scaled geometry, rotation-free).
+    const pushProp = (batch, x, y, z, scale, rotY) => {
+      _e.set(0, rotY || 0, 0);
+      _q.setFromEuler(_e);
+      _p.set(x, y, z);
+      _s.set(scale, scale, scale);
+      _m.compose(_p, _q, _s);
+      batch.list.push(_m.clone());
+    };
+
+    // ---- Geometry pool (one BufferGeometry per distinct shape) -------------
+    // A single unit box is reused everywhere: every box batch just scales it,
+    // so Three.js uploads one geometry instead of dozens of near-duplicates.
+    const gUnitBox = new THREE.BoxGeometry(1, 1, 1);
+    const gPlinth = new THREE.BoxGeometry(1, 0.5, 1);
+    const gBand = new THREE.BoxGeometry(1, 0.3, 1);
+    const gWinBand = new THREE.BoxGeometry(1, 1.3, 1);
+    const gRoofCap = new THREE.BoxGeometry(1, 0.45, 1);
+    const gSidewalk = new THREE.BoxGeometry(1, 0.4, 1);
+    const gWall = new THREE.BoxGeometry(0.3, 1, 1);
+    const gPost = new THREE.BoxGeometry(0.55, 1, 0.55);
+    const gShutter = new THREE.BoxGeometry(3.4, 4.4, 0.25);
+    const gLampPole = new THREE.CylinderGeometry(0.12, 0.18, 5.2, 8);
+    const gLampGlass = new THREE.CylinderGeometry(0.35, 0.2, 0.65, 6);
+    const gTank = new THREE.CylinderGeometry(1, 1, 1, 14);
+    const gDome = new THREE.SphereGeometry(1, 14, 7, 0, Math.PI * 2, 0, Math.PI / 2);
+    const gTrunk = new THREE.CylinderGeometry(0.3, 0.46, 2.6, 6);
+    const gPine = new THREE.ConeGeometry(2.0, 5.8, 7);
+    const gLeaf = new THREE.DodecahedronGeometry(2.2, 0);
+    const gContainer = new THREE.BoxGeometry(6.2, 2.5, 2.6);
+    const gBarrier = new THREE.BoxGeometry(1, 1.15, 1);
+    const gSignPlate = new THREE.BoxGeometry(0.12, 0.9, 0.9);
+
+    const bTownShell = { light: makeBatcher(gUnitBox, matWallLight), cool: makeBatcher(gUnitBox, matWallCool), warm: makeBatcher(gUnitBox, matWallWarm) };
+    const bPlinth = makeBatcher(gPlinth, matPave);
+    const bBand = makeBatcher(gBand, matRoofDark);
+    const bBandBlue = makeBatcher(gBand, matRoofBlue);
+    const bWin = makeBatcher(gWinBand, matGlassWarm);
+    const bRoofDark = makeBatcher(gRoofCap, matRoofDark);
+    const bRoofBlue = makeBatcher(gRoofCap, matRoofBlue);
+    const bBackDark = makeBatcher(gUnitBox, matRoofSlate);
+    const bBackBlue = makeBatcher(gUnitBox, matRoofBlue);
+
+    const bWhShellDark = makeBatcher(gUnitBox, matWallSteel);
+    const bWhShellBlue = makeBatcher(gUnitBox, matRoofBlue);
+    const bWhPad = makeBatcher(new THREE.BoxGeometry(1, 0.4, 1), matYard, { shadow: false, receive: true });
+    const bWhRoof = makeBatcher(new THREE.BoxGeometry(1, 0.8, 1), matRoofDark);
+    const bShutter = makeBatcher(gShutter, matFence);
+
+    const bFenceWall = makeBatcher(gWall, matFence);
+    const bFencePost = makeBatcher(gPost, matFence);
+    const bSidewalk = makeBatcher(gSidewalk, matPave, { shadow: false, receive: true });
+    const bLampPole = makeBatcher(gLampPole, matLampPole);
+    const bLampGlass = makeBatcher(gLampGlass, matLampGlass, { shadow: false });
+
+    const bTank = makeBatcher(gTank, matSteel);
+    const bDome = makeBatcher(gDome, matSteel);
+
+    const bTrunk = makeBatcher(gTrunk, trunkMatShared());
+    const bPine = pineMatsShared().map((m) => makeBatcher(gPine, m));
+    const bLeaf = leafMatsShared().map((m) => makeBatcher(gLeaf, m));
+
+    // Shipping containers: one batch per colour.
+    const containerMats = [0xe74c3c, 0x2980b9, 0xf1c40f, 0x27ae60, 0xe67e22].map(
+      (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.5 })
+    );
+    const bContainer = containerMats.map((m) => makeBatcher(gContainer, m));
+
+    const bBarrier = makeBatcher(gBarrier, matConcrete);
+    const bBarrierStripe = makeBatcher(gBarrier, matHazard);
+    const bSignPost = makeBatcher(gPost, matLampPole);
+    const bSignPlate = makeBatcher(gSignPlate, matSignWhite);
+
+    function trunkMatShared() {
+      return new THREE.MeshStandardMaterial({ color: 0x6d4c41, roughness: 0.9 });
+    }
+    function pineMatsShared() {
+      return [0x145a32, 0x1e8449, 0x196f3d].map(
+        (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.7 })
+      );
+    }
+    function leafMatsShared() {
+      return [0x2ecc71, 0x27ae60, 0x58d68d].map(
+        (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.7 })
+      );
+    }
+
+    // ---- 2-storey modular townhouse (background LOD: no interior detail) ----
+    function townhouse(x, z, w, d, wallKey, roofKey) {
+      const H = 6.4;
+      pushBox(bPlinth, x, 0.25, z, w + 0.5, 1, d + 0.5);
+      pushBox(bTownShell[wallKey], x, H / 2 + 0.5, z, w, H, d);
+      pushBox(roofKey === 'blue' ? bBandBlue : bBand, x, H / 2 + 0.5, z, w + 0.3, 1, d + 0.3);
+      pushBox(bWin, x, 2.0, z, w + 0.14, 1, d + 0.14);
+      pushBox(bWin, x, 5.2, z, w + 0.14, 1, d + 0.14);
+      pushBox(roofKey === 'blue' ? bRoofBlue : bRoofDark, x, H + 0.72, z, w + 0.4, 1, d + 0.4);
+      addCollider(x, z, w / 2, d / 2);
+    }
+
+    // Cheap silhouette block filling the skyline behind the terraced rows.
+    function backdropBlock(x, z, w, d, h, blue) {
+      pushBox(blue ? bBackBlue : bBackDark, x, h / 2, z, w, h, d);
+      addCollider(x, z, w / 2, d / 2);
+    }
+
+    // ---- Industrial warehouse / hangar -------------------------------------
+    function warehouse(x, z, w, d, steelShell) {
+      const H = 9.5;
+      pushBox(bWhPad, x, 0.2, z, w + 2, 1, d + 2);
+      pushBox(steelShell ? bWhShellDark : bWhShellBlue, x, H / 2 + 0.4, z, w, H, d);
+      pushBox(bWhRoof, x, H + 0.8, z, w + 1, 1, d + 1);
+      for (let i = -1; i <= 1; i++) {
+        pushBox(bShutter, x + i * w * 0.3, 2.6, z + d / 2 + 0.14, 1, 1, 1);
+      }
+      addCollider(x, z, w / 2, d / 2);
+    }
+
+    // ---- Storage cistern / silo -------------------------------------------
+    function cistern(x, z, r, h) {
+      pushBox(bSidewalk, x, 0.22, z, r * 2.8, 1, r * 2.8);
+      pushBox(bTank, x, h / 2 + 0.45, z, r, h, r);
+      pushProp(bDome, x, h + 0.45, z, r);
+      addCollider(x, z, r, r, 0.6);
+    }
+
+    // ---- Perimeter wall / industrial fence ---------------------------------
+    function fenceRun(x1, z1, x2, z2, h) {
+      const len = Math.hypot(x2 - x1, z2 - z1);
+      if (len < 1) return;
+      const cx = (x1 + x2) / 2;
+      const cz = (z1 + z2) / 2;
+      const rotY = Math.atan2(x2 - x1, z2 - z1);
+      pushBox(bFenceWall, cx, h / 2, cz, 1, h, len, rotY);
+
+      const bays = Math.max(2, Math.round(len / 15));
+      for (let i = 0; i <= bays; i++) {
+        const px = x1 + (x2 - x1) * (i / bays);
+        const pz = z1 + (z2 - z1) * (i / bays);
+        pushBox(bFencePost, px, (h + 0.4) / 2, pz, 1, h + 0.4, 1);
+      }
+    }
+
+    // ---- Dead-end barrier behind a road stub (on the belt sidewalk) --------
+    // The carriageway itself must stay completely clear of static obstacles, so
+    // the concrete blocks are parked just PAST the kerb line, on the raised belt
+    // sidewalk (|coord| 128…135). The truck still reads the dead end, but its
+    // colliders now live off the asphalt — it can never clip a block mid-road.
+    //
+    // `kerbAxis` names the line the barrier sits on: 'x' → the stub ends at
+    // x = ±ROAD_EDGE (that road runs along X); 'z' → it ends at z = ±ROAD_EDGE.
+    function deadEnd(kerbAxis, coord, sign) {
+      const atX = (kerbAxis === 'x');
+      const base = sign * ROAD_EDGE;
+      // Push the barrier just outside the kerb so it rests on the sidewalk.
+      const along = base + sign * 2.0;
+      const GAP = 1.5;                               // pedestrian slot (centre)
+      // One block fills the carriageway width from the slot edge to the kerb:
+      //   road half-width 8.25 − gap half 0.75 = 7.5
+      const BLOCK = ROAD_W / 2 - GAP / 2;            // 7.5
+      const lat = GAP / 2 + BLOCK / 2;               // block centre = 4.5
+      const THICK = 2.4;
+      // gBarrier is 1.15 m tall and gets scaled by 0.9 → 1.035 m; the hazard
+      // stripe is the same geometry scaled by 0.22. Both are seated on the belt
+      // sidewalk whose top surface is at y = 0.4 (0.4 m slab centred on 0.2).
+      const BLOCK_H = 1.15 * 0.9;
+      const STRIPE_H = 1.15 * 0.22;
+      const PAVE_TOP = 0.4;
+
+      for (let d = -1; d <= 1; d += 2) {
+        const off = d * lat;
+        const cx = atX ? along : coord + off;
+        const cz = atX ? coord + off : along;
+        const sx = atX ? THICK : BLOCK;
+        const sz = atX ? BLOCK : THICK;
+
+        pushBox(bBarrier, cx, PAVE_TOP + BLOCK_H / 2, cz, sx, 0.9, sz);
+        // Hazard stripe capping the block.
+        pushBox(
+          bBarrierStripe,
+          cx, PAVE_TOP + BLOCK_H + STRIPE_H / 2, cz,
+          sx * 1.04, 0.22, sz * 1.04
+        );
+
+        if (atX) addCollider(cx, cz, THICK / 2, BLOCK / 2, 0.2);
+        else addCollider(cx, cz, BLOCK / 2, THICK / 2, 0.2);
+      }
+
+      // "Dead end" plate on a post, standing further back on the belt sidewalk
+      // so it is not buried inside the barrier blocks (and clear of the avenue
+      // trees that line the belt at |ROAD_EDGE + 5|).
+      const px = atX ? sign * (ROAD_EDGE + 3.2) : coord;
+      const pz = atX ? coord : sign * (ROAD_EDGE + 3.2);
+      pushBox(bSignPost, px, 2.1, pz, 1, 3.4, 1);
+      // gSignPlate is thin along X: its face must look back down the road, i.e.
+      // along X for an X-running road and along Z for a Z-running one.
+      pushBox(bSignPlate, px, 3.35, pz, 1, 1, 1, atX ? 0 : Math.PI / 2);
+    }
+
+    // ---- Raised sidewalk slab along the belt's inner kerb ------------------
+    function edgeSidewalk(axis, sign) {
+      // Full road span (±ROAD_EDGE) so the kerb closes flush into the corner.
+      const len = 2 * ROAD_EDGE;
+      if (axis === 'x') pushBox(bSidewalk, 0, 0.2, sign * (BELT_INNER + 3.5), len, 1, 7);
+      else pushBox(bSidewalk, sign * (BELT_INNER + 3.5), 0.2, 0, 7, 1, len);
+    }
+
+    // ---- Street lamp -------------------------------------------------------
+    function perimeterLamp(x, z) {
+      pushProp(bLampPole, x, 2.6, z, 1);
+      pushProp(bLampGlass, x, 5.3, z, 1);
+    }
+
+    // ---- Street tree -------------------------------------------------------
+    function plantTree(x, z, s, conifer, seed) {
+      pushProp(bTrunk, x, 1.35 * s, z, s);
+      // Positive modulo: seeds may be negative around the perimeter.
+      if (conifer) {
+        const mi = ((seed % bPine.length) + bPine.length) % bPine.length;
+        pushProp(bPine[mi], x, 5.5 * s, z, s);
+      } else {
+        const mi = ((seed % bLeaf.length) + bLeaf.length) % bLeaf.length;
+        pushProp(bLeaf[mi], x, 5.7 * s, z, s);
+      }
+    }
+
+    // ---- Coloured LEGO container stacks ------------------------------------
+    function containerYard(x, z, cols, rows) {
+      for (let c = 0; c < cols; c++) {
+        for (let r = 0; r < rows; r++) {
+          const wx = x + (c - (cols - 1) / 2) * 6.8;
+          const wz = z + (r - (rows - 1) / 2) * 3.3;
+          for (let layer = 0; layer < 2; layer++) {
+            const bi = (c * 3 + r + layer * 2) % bContainer.length;
+            pushProp(bContainer[bi], wx, 1.25 + layer * 2.55, wz, 1, ((c + r + layer) % 5) * 0.02);
+          }
+        }
+      }
+    }
+
+    // ========================================================================
+    // 1. TERRACED ROWS — north (commercial), south (residential), east
+    // ========================================================================
+    const frontKeys = ['light', 'cool', 'warm'];
+    for (let i = 0; i < 6; i++) {
+      const along = -EDGE + 22 + i * 39;
+      const roof = (i % 2) ? 'blue' : 'dark';
+
+      // North belt
+      townhouse(along, FRONT, 30, 18, frontKeys[i % 3], roof);
+      backdropBlock(along, BACK, 34, 18, 12 + (i % 3) * 4, i % 2 === 0);
+
+      // South belt
+      townhouse(along, -FRONT, 30, 18, frontKeys[(i + 1) % 3], roof);
+      backdropBlock(along, -BACK, 34, 18, 11 + (i % 3) * 4, i % 2 === 1);
+
+      // East belt
+      townhouse(FRONT, along, 18, 30, frontKeys[(i + 2) % 3], roof);
+      backdropBlock(BACK, along, 18, 34, 12 + (i % 3) * 3, i % 2 === 0);
+    }
+
+    // ========================================================================
+    // 2. WEST BELT — city forest / park continuation (no buildings)
+    // ========================================================================
+    for (let c = 0; c < 5; c++) {
+      for (let r = 0; r < 21; r++) {
+        const seed = c * 7 + r;
+        plantTree(
+          -BELT_INNER - 6 - c * 11,
+          -EDGE + 6 + r * 11.4,
+          0.8 + (seed % 4) * 0.12,
+          seed % 3 === 0,
+          seed
+        );
+      }
+    }
+
+    // ========================================================================
+    // 3. NE CORNER — recycling plant logistics yard (x > 120, z > 120)
+    // ========================================================================
+    warehouse(CORNER - 14, CORNER - 13, 30, 20, true);
+    warehouse(CORNER + 15, CORNER + 13, 26, 20, false);
+    cistern(CORNER + 15, CORNER - 12, 5.4, 12);
+    cistern(CORNER - 12, CORNER + 16, 4.2, 9);
+    containerYard(CORNER + 4, CORNER + 1, 3, 2);
+    fenceRun(BELT_INNER + 4, CORNER - 27, BELT_OUTER - 2, CORNER - 27, 2.6);
+    fenceRun(BELT_INNER + 4, CORNER - 27, BELT_INNER + 4, BELT_OUTER - 2, 2.6);
+
+    // ========================================================================
+    // 4. NW / SW / SE CORNERS — forest + terraces completing the ring
+    // ========================================================================
+    for (let c = 0; c < 3; c++) {
+      for (let r = 0; r < 3; r++) {
+        const seed = c * 3 + r + 5;
+        plantTree(
+          -CORNER - 14 + c * 14,
+          CORNER - 6 + r * 14,
+          0.85 + (seed % 3) * 0.1,
+          seed % 2 === 0,
+          seed
+        );
+      }
+    }
+
+    townhouse(-CORNER - 10, -CORNER, 30, 20, 'warm', 'dark');
+    townhouse(-CORNER + 16, -CORNER + 14, 22, 22, 'cool', 'blue');
+    townhouse(CORNER + 10, -CORNER, 30, 20, 'light', 'blue');
+    townhouse(CORNER - 16, -CORNER - 14, 22, 22, 'cool', 'dark');
+    fenceRun(-BELT_OUTER + 2, -CORNER - 28, -BELT_INNER - 4, -CORNER - 28, 2.2);
+
+    // ========================================================================
+    // 5. INNER KERB — sidewalk base, street lamps and avenue trees
+    // ========================================================================
+    const sides = [
+      { axis: 'x', sign: 1 },   // north
+      { axis: 'x', sign: -1 },  // south
+      { axis: 'z', sign: 1 },   // east
+      { axis: 'z', sign: -1 }   // west
+    ];
+
+    sides.forEach((side, si) => {
+      edgeSidewalk(side.axis, side.sign);
+
+      for (let k = -4; k <= 4; k++) {
+        const along = k * 28;
+        const cross = side.sign * (BELT_INNER + 5);
+        const x = side.axis === 'x' ? along : cross;
+        const z = side.axis === 'x' ? cross : along;
+
+        if (k % 2 === 0) {
+          perimeterLamp(x, z);
+        }
+        plantTree(x, z, 0.85, (k + si) % 2 === 0, k + si * 11);
+      }
+    });
+
+    // ========================================================================
+    // 6. ROAD STUBS — impassable dead ends on every line leaving the grid
+    // ========================================================================
+    // gridCoords lines run BOTH ways (each value is an X line and a Z line), so
+    // every entry yields one north and one south stub ('x') plus one east and
+    // one west stub ('z').
+    gridCoords.forEach(line => {
+      deadEnd('x', line, 1);    // ends at x = line  → barrier at z = +ROAD_EDGE
+      deadEnd('x', line, -1);   // ends at x = line  → barrier at z = -ROAD_EDGE
+      deadEnd('z', line, 1);    // ends at z = line  → barrier at x = +ROAD_EDGE
+      deadEnd('z', line, -1);   // ends at z = line  → barrier at x = -ROAD_EDGE
+    });
+
+    // ========================================================================
+    // FLUSH — one InstancedMesh per batch (a few dozen draw calls total)
+    // ========================================================================
+    batches.forEach((b) => {
+      if (!b.list.length) return;
+      const inst = new THREE.InstancedMesh(b.geom, b.mat, b.list.length);
+      for (let i = 0; i < b.list.length; i++) inst.setMatrixAt(i, b.list[i]);
+      inst.instanceMatrix.needsUpdate = true;
+      inst.castShadow = b.shadow;
+      inst.receiveShadow = b.receive;
+      // Static: bake the matrix once and never recompose it per frame.
+      inst.matrixAutoUpdate = false;
+      inst.updateMatrix();
+      // r128 never refreshes instance bounds, so skip the (stale) frustum test.
+      // A single instanced batch is one draw call regardless.
+      inst.frustumCulled = false;
+      scene.add(inst);
+      buildings3D.push(inst);
+    });
   }
 
   // --- Detailed 3D Residential Block & Modular LEGO Villas ---
@@ -2224,26 +2713,32 @@
       createDetailedTree3D(pos.x + wallW * 0.55 * pos.faceX, pos.z - wallD * 0.55 * pos.faceZ);
     });
 
-    createStreetLamp3D(cx - w / 2 + 1.6, cz - d / 2 + 1.6);
-    createStreetLamp3D(cx + w / 2 - 1.6, cz - d / 2 + 1.6);
-    createStreetLamp3D(cx - w / 2 + 1.6, cz + d / 2 - 1.6);
-    createStreetLamp3D(cx + w / 2 - 1.6, cz + d / 2 - 1.6);
+    // Every prop below is placed INWARD from the block edge, i.e. on the raised
+    // sidewalk. SIDEWALK_W is 3.4 m, so an inset of ~2.2 m keeps the prop clear
+    // of the roadway while staying in front of the picket fence. Never subtract
+    // from the outer edge (that would push props onto the asphalt).
+    const EDGE_IN = 2.2;
 
-    createFireHydrant3D(cx - w / 2 - 1.4, cz - d / 2 + 3.0);
-    createFireHydrant3D(cx + w / 2 + 1.4, cz + d / 2 - 3.0);
+    createStreetLamp3D(cx - w / 2 + EDGE_IN, cz - d / 2 + EDGE_IN);
+    createStreetLamp3D(cx + w / 2 - EDGE_IN, cz - d / 2 + EDGE_IN);
+    createStreetLamp3D(cx - w / 2 + EDGE_IN, cz + d / 2 - EDGE_IN);
+    createStreetLamp3D(cx + w / 2 - EDGE_IN, cz + d / 2 - EDGE_IN);
 
-    createRoadSign3D(cx - w / 2 + 2.5, cz - d / 2 - 1.2, '30');
-    createRoadSign3D(cx + w / 2 - 2.5, cz + d / 2 + 1.2, 'PED');
+    createFireHydrant3D(cx - w / 2 + EDGE_IN, cz - d / 2 + 3.0);
+    createFireHydrant3D(cx + w / 2 - EDGE_IN, cz + d / 2 - 3.0);
 
-    createStormDrain3D(cx, cz - d / 2 - 0.4, true);
-    createStormDrain3D(cx, cz + d / 2 + 0.4, true);
+    createRoadSign3D(cx - w / 2 + EDGE_IN, cz - d / 2 + EDGE_IN, '30');
+    createRoadSign3D(cx + w / 2 - EDGE_IN, cz + d / 2 - EDGE_IN, 'PED');
 
-    createParkBench3D(cx - w / 2 + 1.6, cz + 2.0, Math.PI / 2);
-    createParkBench3D(cx + w / 2 - 1.6, cz - 2.0, -Math.PI / 2);
+    createStormDrain3D(cx, cz - d / 2 + EDGE_IN, true);
+    createStormDrain3D(cx, cz + d / 2 - EDGE_IN, true);
 
-    createMinifigure3D(cx - w / 2 + 1.6, cz - 6.0, 0, 0xe74c3c, 0x2c3e50, false);
-    createMinifigure3D(cx + w / 2 - 1.6, cz + 6.0, Math.PI, 0x0984e3, 0x1e272e, true);
-    createMinifigure3D(cx + 4.0, cz - d / 2 + 1.6, Math.PI / 2, 0x2ecc71, 0x2c3e50, false);
+    createParkBench3D(cx - w / 2 + EDGE_IN + 0.4, cz + 2.0, Math.PI / 2);
+    createParkBench3D(cx + w / 2 - EDGE_IN - 0.4, cz - 2.0, -Math.PI / 2);
+
+    createMinifigure3D(cx - w / 2 + EDGE_IN, cz - 6.0, 0, 0xe74c3c, 0x2c3e50, false);
+    createMinifigure3D(cx + w / 2 - EDGE_IN, cz + 6.0, Math.PI, 0x0984e3, 0x1e272e, true);
+    createMinifigure3D(cx + 4.0, cz - d / 2 + EDGE_IN, Math.PI / 2, 0x2ecc71, 0x2c3e50, false);
     // Containers are no longer hard-wired to the block corners — they are
     // spawned procedurally from POTENTIAL_BIN_SPAWNS in initLevel().
   }
@@ -2363,7 +2858,10 @@
 
   const POTENTIAL_BIN_SPAWNS = (() => {
     const KERB = 9.5;        // distance from road centre to kerb — on the sidewalk
-    const SPAWN_LIMIT = 150; // keep spawns clear of the outer U-turn zone (190)
+    // Bins must stay well inside the paved grid: the roads now end at ±ROAD_EDGE
+    // (±128) with dead-end barriers and perimeter fences beyond, so anything
+    // past ±100 is dropped to keep the arm reachable from a lane.
+    const SPAWN_LIMIT = 100;
     const LANE = 3.6;        // lane centre offset from the road centre line
     const diagonal = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
     const pool = [];
@@ -2373,35 +2871,37 @@
       const len = Math.round(Math.abs(along) / 2);
       const key = `${axis}|${line}|${lane}|${len}`;
       if (seen.has(key)) return;
-      seen.add(key);
       const perpSign = armSideSign(axis, lane);
       const perp = perpSign * KERB;
       let x, z;
       if (axis === 'x') { x = along; z = line + perp; }
       else { x = line + perp; z = along; }
+      // Hard reachability filter. A bin placed on the outer side of a ±120 line
+      // lands at ±129.5, i.e. on the decorative belt behind the kerb, where the
+      // perimeter fences and dead-end barriers make it unreachable — so only the
+      // city-side offset of the outermost streets survives.
+      if (Math.abs(x) > ROAD_EDGE || Math.abs(z) > ROAD_EDGE) return;
+      seen.add(key);
       pool.push({ x, z, angle: binAngleForPerp(axis, perpSign), axis, line, lane, along, perpSign });
     };
 
     gridCoords.forEach((line, idx) => {
       // --- x-roads (running east-west along Z = line) ---
-      add('x', line, LANE, -148);          // beside the recycling plant
-      add('x', line, -LANE, 150);          // beside the recycling plant
-      add('x', line, LANE, -80);           // mid-block
-      add('x', line, -LANE, 78);           // mid-block
-      add('x', line, LANE, 148);           // far block, opposite curb
-      add('x', line, -LANE, -150);         // far block, opposite curb
-      add('x', line, LANE, 60);            // outer mid-block
-      add('x', line, -LANE, -60);          // outer mid-block
+      add('x', line, LANE, -80);            // mid-block, kerb side
+      add('x', line, -LANE, 80);            // mid-block, opposite curb
+      add('x', line, LANE, -20);            // inner mid-block
+      add('x', line, -LANE, 20);            // inner mid-block
+      add('x', line, LANE, 60);             // outer mid-block
+      add('x', line, -LANE, -60);           // outer mid-block
       if (idx % 2 === 1) add('x', line, LANE, -12); // near an intersection
 
       // --- z-roads (running north-south along X = line) ---
-      add('z', line, LANE, -150);          // beside the park
-      add('z', line, -LANE, -78);
-      add('z', line, -LANE, 78);
-      add('z', line, LANE, 150);           // far block, opposite curb
-      add('z', line, -LANE, -150);         // far block, opposite curb
-      add('z', line, LANE, 60);            // outer mid-block
-      add('z', line, -LANE, -60);          // outer mid-block
+      add('z', line, LANE, -80);
+      add('z', line, -LANE, 80);
+      add('z', line, LANE, -20);
+      add('z', line, -LANE, 20);
+      add('z', line, LANE, 60);
+      add('z', line, -LANE, -60);
       if (idx % 2 === 1) add('z', line, -LANE, 12); // near an intersection
     });
 
@@ -2735,8 +3235,12 @@
   // The city roads run along `gridCoords`: rows are Z lines, columns are X lines.
   const NPC_GRID_ROW_Z = gridCoords;
   const NPC_GRID_COL_X = gridCoords;
-  // Cars turn around before leaving the world (WORLD_SIZE / 2 - 20 = 190)
-  const NPC_TURN_ZONE = WORLD_SIZE / 2 - 20;
+  // Hard U-turn boundary: NPCs loop at ±122, i.e. on the last intersection
+  // (±120) just short of the dead-end barrier at ±128 — they never drive into
+  // the decorative perimeter belt.
+  const NPC_TURN_ZONE = 122;
+  // Cars spawn only on the inner streets, comfortably inside the turn zone.
+  const NPC_SPAWN_RANGE = 110;
   // Probability of turning at any given intersection (otherwise drive straight).
   const NPC_TURN_CHANCE = 0.35;
 
@@ -2912,7 +3416,7 @@
     for (let attempt = 0; attempt < 24; attempt++) {
       const lane = NPC_LANES[Math.floor(Math.random() * NPC_LANES.length)];
       const direction = lane.lane > 0 ? 1 : -1;
-      const spawnRange = WORLD_SIZE / 2 - 30;
+      const spawnRange = NPC_SPAWN_RANGE;
       const along = (Math.random() - 0.5) * 2 * spawnRange;
 
       placeCarOnLane(car, lane.axis, lane.line, lane.lane, direction, along);
@@ -2949,7 +3453,7 @@
   // from the player truck and clear of the rest of the fleet. Returns true on
   // success (a free spot was found within the attempt budget).
   function respawnNpcCarToFreeLane(car) {
-    const spawnRange = WORLD_SIZE / 2 - 30;
+    const spawnRange = NPC_SPAWN_RANGE;
     for (let attempt = 0; attempt < 30; attempt++) {
       const lane = NPC_LANES[Math.floor(Math.random() * NPC_LANES.length)];
       const direction = lane.lane > 0 ? 1 : -1;
@@ -3127,8 +3631,8 @@
         placeCarOnLane(car, car.axis, car.line, -car.lane, -car.dir, uTurnAlong);
       }
 
-      // Keep cars inside the world bounds.
-      const limit = WORLD_SIZE / 2 - 12;
+      // Keep cars on the paved grid (never past the dead-end barriers).
+      const limit = ROAD_EDGE - 2;
       car.x = Math.max(-limit, Math.min(limit, car.x));
       car.z = Math.max(-limit, Math.min(limit, car.z));
 
@@ -3495,8 +3999,8 @@
       }
     }
 
-    // World Boundary constraint
-    const bLimit = WORLD_SIZE / 2 - 8;
+    // World Boundary constraint — the playable corridor is the paved grid.
+    const bLimit = ROAD_EDGE;
     truckPhys.x = Math.max(-bLimit, Math.min(bLimit, truckPhys.x));
     truckPhys.z = Math.max(-bLimit, Math.min(bLimit, truckPhys.z));
 
@@ -3651,7 +4155,9 @@
   function findNearestRoadSpot() {
     const curX = truckPhys.x;
     const curZ = truckPhys.z;
-    const bLimit = WORLD_SIZE / 2 - 18;
+    // 122, not 128: the evacuation must always land the truck well inside the
+    // dead-end barriers, never on top of them.
+    const bLimit = 122;
 
     const candidates = [];
 
@@ -5423,5 +5929,4 @@
 
   initLevel();
   requestAnimationFrame(loop);
-
 })();
