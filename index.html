@@ -77,6 +77,9 @@
 
       <!-- Audio / Camera / Unstuck / Records / Help buttons -->
       <div class="hud-controls-group">
+        <button id="mapSelectBtn" class="hud-btn" title="Выбрать карту / новый маршрут" aria-label="Выбор карты">
+          <span>🗺️</span>
+        </button>
         <button id="recordsBtn" class="hud-btn" title="Личные рекорды и статистика [L]" aria-label="Рекорды">
           <span>🏆</span>
         </button>
@@ -317,6 +320,69 @@
       </div>
     </div>
 
+    <!-- Map Select Modal (before shift) -->
+    <div class="modal-backdrop show" id="mapSelectModal">
+      <div class="modal-card map-select-card">
+        <div class="modal-header">
+          <div class="trophy-badge">🗺️</div>
+          <h2 class="modal-title">ВЫБОР КАРТЫ</h2>
+          <p class="modal-subtitle">Все карты открыты сразу — выберите район для следующей смены</p>
+        </div>
+
+        <div class="map-select-grid">
+          <button type="button" class="map-card selected" data-map-id="downtown" id="mapCardDowntown">
+            <div class="map-card-icon">🏙️</div>
+            <div class="map-card-title">Центр города</div>
+            <div class="map-card-blurb">Плотная застройка, активный трафик, классический городской маршрут</div>
+            <div class="map-card-meta">
+              <span>12 баков</span>
+              <span class="map-card-record" id="mapRecDowntown">Рекорд: --:--</span>
+            </div>
+          </button>
+          <button type="button" class="map-card" data-map-id="suburb" id="mapCardSuburb">
+            <div class="map-card-icon">🏡</div>
+            <div class="map-card-title">Дачный посёлок</div>
+            <div class="map-card-blurb">Участки с домиками, узкие проезды между ними, лужайки, бассейн и тихий трафик</div>
+            <div class="map-card-meta">
+              <span>12 баков</span>
+              <span class="map-card-record" id="mapRecSuburb">Рекорд: --:--</span>
+            </div>
+          </button>
+          <button type="button" class="map-card" data-map-id="industrial" id="mapCardIndustrial">
+            <div class="map-card-icon">🏭</div>
+            <div class="map-card-title">Промзона</div>
+            <div class="map-card-blurb">Большая карта: широкие улицы, огромные складские кварталы и контейнерные дворы</div>
+            <div class="map-card-meta">
+              <span>12 баков</span>
+              <span class="map-card-record" id="mapRecIndustrial">Рекорд: --:--</span>
+            </div>
+          </button>
+        </div>
+
+        <div class="tod-picker" role="group" aria-label="Время суток">
+          <div class="tod-label">Время суток</div>
+          <div class="tod-toggle">
+            <button type="button" class="tod-btn selected" data-tod="day" id="todDayBtn">☀️ День</button>
+            <button type="button" class="tod-btn" data-tod="night" id="todNightBtn">🌙 Ночь</button>
+          </div>
+        </div>
+
+        <div class="tod-picker" role="group" aria-label="Погода">
+          <div class="tod-label">Погода</div>
+          <div class="tod-toggle">
+            <button type="button" class="tod-btn selected" data-weather="clear" id="weatherClearBtn">🌤️ Ясно</button>
+            <button type="button" class="tod-btn" data-weather="rain" id="weatherRainBtn">🌧️ Дождь</button>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button class="btn-primary" id="btnStartMapShift">
+            <span>⚡ НАЧАТЬ СМЕНУ</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Victory / Mission Complete Modal -->
     <div class="modal-backdrop" id="victoryModal">
       <div class="modal-card">
@@ -393,7 +459,7 @@
 
         <div class="modal-footer">
           <button class="btn-primary" id="btnRestartLevel">
-            <span>🔄 НОВЫЙ МАРШРУТ</span>
+            <span>🗺️ ВЫБРАТЬ КАРТУ</span>
           </button>
           <button class="btn-secondary" id="btnFreeDrive">
             <span>🛣️ СВОБОДНАЯ ЕЗДА</span>
@@ -473,7 +539,7 @@
             <div class="help-step-num">1</div>
             <div>
               <strong>Ездите по улицам города и следите за трафиком</strong>
-              <p>Используйте стрелочки или кнопки на экране. Объезжайте легковые автомобили NPC на дорогах — столкновение начисляет штраф по времени!</p>
+              <p>Используйте стрелочки или кнопки на экране. Объезжайте легковые автомобили NPC на дорогах — столкновение начисляет штраф по времени! Пешеходы ходят по тротуарам и переходят по зебрам — машины уступают дорогу. В режиме <b>🌧️ Дождь</b> дворники работают сами, а мокрый асфальт удлиняет тормозной путь и делает руль менее отзывчивым.</p>
             </div>
           </div>
           <div class="help-section">

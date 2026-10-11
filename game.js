@@ -39,6 +39,37 @@
   const victoryModal = document.getElementById('victoryModal');
   const btnRestartLevel = document.getElementById('btnRestartLevel');
   const btnFreeDrive = document.getElementById('btnFreeDrive');
+  const mapSelectModal = document.getElementById('mapSelectModal');
+  const mapSelectBtn = document.getElementById('mapSelectBtn');
+  const btnStartMapShift = document.getElementById('btnStartMapShift');
+  const mapCardDowntown = document.getElementById('mapCardDowntown');
+  const mapCardSuburb = document.getElementById('mapCardSuburb');
+  const mapCardIndustrial = document.getElementById('mapCardIndustrial');
+  const mapRecDowntown = document.getElementById('mapRecDowntown');
+  const mapRecSuburb = document.getElementById('mapRecSuburb');
+  const mapRecIndustrial = document.getElementById('mapRecIndustrial');
+  const todDayBtn = document.getElementById('todDayBtn');
+  const todNightBtn = document.getElementById('todNightBtn');
+  const weatherClearBtn = document.getElementById('weatherClearBtn');
+  const weatherRainBtn = document.getElementById('weatherRainBtn');
+  let pendingMapId = 'downtown';
+  let levelBooted = false;
+  const TOD_STORAGE_KEY = 'mack_recycle_tod_v1';
+  const WEATHER_STORAGE_KEY = 'mack_recycle_weather_v1';
+  let pendingTimeOfDay = 'day';
+  let activeTimeOfDay = 'day';
+  let pendingWeather = 'clear';
+  let activeWeather = 'clear';
+  // Street / window emissive materials recreated with each city — refreshed on TOD apply.
+  let nightGlowMats = [];
+  // Permanent vehicle light mats (filled after materials are created).
+  const todVehicleMats = {
+    headlight: null,
+    taillight: null,
+    amber: null,
+    npcHead: null,
+    npcTail: null
+  };
   const resBinsCount = document.getElementById('resBinsCount');
   const resWeight = document.getElementById('resWeight');
   const resTime = document.getElementById('resTime');
@@ -110,17 +141,122 @@
   const minimapCanvas = document.getElementById('minimapCanvas');
   const mCtx = minimapCanvas.getContext('2d');
 
-  // --- World Constants ---
-  const WORLD_SIZE = 420;
-  const ROAD_W = 16.5;
+  // --- World Constants & Map Profiles ---
+  // Mutable: each map can scale the grass plane and carriageway width.
+  let WORLD_SIZE = 420;
+  let ROAD_W = 16.5;
   const SIDEWALK_W = 3.4;
-  const gridCoords = [-120, -40, 40, 120];
-  // The drivable road grid is deliberately decoupled from WORLD_SIZE (420, the
-  // grass plane). Roads are cut off right after the outermost intersections
-  // (±120), so they span exactly ±ROAD_EDGE (±128) — the perimeter belt (with
-  // its buildings and forest) starts straight past the kerb, with no leftover
-  // asphalt strip behind it. Traffic and the truck share these same bounds.
-  const ROAD_EDGE = 128;
+
+  // Playable maps. Geometry / traffic / spawn limits are driven by the
+  // active profile; gameplay systems (physics, arm, cutscenes) stay shared.
+  const MAP_PROFILES = {
+    downtown: {
+      id: 'downtown',
+      title: 'Центр города',
+      blurb: 'Плотная застройка, активный трафик, классический городской маршрут',
+      gridCoords: [-120, -40, 40, 120],
+      roadEdge: 128,
+      worldSize: 420,
+      roadWidth: 16.5,
+      spawnLimit: 100,
+      npcTurnZone: 122,
+      truckStart: { x: -40, z: 25, angle: 0 },
+      totalBins: 12,
+      npcCount: [8, 10],
+      pedCount: 8,
+      special: { factory: [2, 2], parks: [[1, 1]] },
+      theme: 'urban',
+      perimeter: 'industrial',
+      groundColor: 0x1f8441
+    },
+    suburb: {
+      id: 'suburb',
+      title: 'Дачный посёлок',
+      blurb: 'Участки с домиками, узкие проезды между ними, лужайки, бассейн и тихий трафик',
+      gridCoords: [-120, -40, 40, 120],
+      roadEdge: 128,
+      worldSize: 420,
+      roadWidth: 16.5,
+      spawnLimit: 100,
+      npcTurnZone: 122,
+      truckStart: { x: -80, z: -36.4, angle: Math.PI / 2 },
+      totalBins: 12,
+      npcCount: [5, 7],
+      pedCount: 6,
+      special: { factory: [2, 2], pool: [0, 1] },
+      theme: 'suburb',
+      perimeter: 'dacha',
+      groundColor: 0x2d9e5a,
+      alleyWidth: 8.5
+    },
+    industrial: {
+      id: 'industrial',
+      title: 'Промзона',
+      blurb: 'Большая карта: широкие улицы, огромные складские кварталы и контейнерные дворы',
+      // Wider spacing (~130 м между осями) + wider carriageway + larger world.
+      gridCoords: [-200, -70, 70, 200],
+      roadEdge: 215,
+      worldSize: 600,
+      roadWidth: 22,
+      spawnLimit: 170,
+      npcTurnZone: 205,
+      truckStart: { x: -130, z: -65.5, angle: Math.PI / 2 },
+      totalBins: 12,
+      npcCount: [7, 10],
+      pedCount: 5,
+      // 3×3 blocks — recycling plant in the centre.
+      special: { factory: [1, 1] },
+      theme: 'industrial',
+      perimeter: 'yards',
+      groundColor: 0x3e4a3c
+    }
+  };
+
+  function normalizeMapId(id) {
+    return MAP_PROFILES[id] ? id : 'downtown';
+  }
+
+  // Narrow service roads cutting through dacha blocks (shared by builder + spawns).
+  const DACHA_ALLEY_W = 8.5;
+
+  let activeMapId = 'downtown';
+  function getActiveMap() {
+    return MAP_PROFILES[activeMapId] || MAP_PROFILES.downtown;
+  }
+
+  // Mutable mirrors of the active map — kept as lets so road / NPC / spawn
+  // code can keep reading the same names without a full rewrite.
+  // The drivable road grid is deliberately decoupled from WORLD_SIZE (grass
+  // plane). Roads are cut off right after the outermost intersections,
+  // so they span exactly ±ROAD_EDGE — the perimeter belt starts past the kerb.
+  let gridCoords = MAP_PROFILES.downtown.gridCoords.slice();
+  let ROAD_EDGE = MAP_PROFILES.downtown.roadEdge;
+
+  function buildRoadIntervals(coords) {
+    // Mid-block marking runs between consecutive intersections, inset so they
+    // never sit on the crossroads themselves.
+    const inset = ROAD_W / 2 + 6;
+    const intervals = [];
+    for (let i = 0; i < coords.length - 1; i++) {
+      const start = coords[i] + inset;
+      const end = coords[i + 1] - inset;
+      if (end - start > 8) intervals.push({ start: start, end: end });
+    }
+    return intervals;
+  }
+
+  function isSpecialBlock(map, i, j, key) {
+    const list = map.special && map.special[key];
+    if (!list) return false;
+    // Single-cell keys are [i, j]; multi-cell keys are arrays of [i, j].
+    if (key === 'factory' || key === 'pool') {
+      return list[0] === i && list[1] === j;
+    }
+    for (let k = 0; k < list.length; k++) {
+      if (list[k][0] === i && list[k][1] === j) return true;
+    }
+    return false;
+  }
 
   // --- Three.js WebGL Setup ---
   const canvas = document.getElementById('gameCanvas');
@@ -136,24 +272,65 @@
   const scene = new THREE.Scene();
   scene.fog = new THREE.Fog('#d8e8f8', 130, 480);
 
-  // Atmospheric Sky Dome with Zenith-to-Horizon Gradient
+  // All static city meshes hang under this group so map switches / restarts
+  // can tear the whole city down in one remove() instead of leaking roads.
+  let cityRoot = null;
+  // Crosswalk registry (filled while building the city) + live sidewalk walkers.
+  let crosswalks = [];
+  let pedestrians = [];
+  function cityAdd(...objs) {
+    const parent = cityRoot || scene;
+    for (let i = 0; i < objs.length; i++) parent.add(objs[i]);
+  }
+  function disposeCityRoot() {
+    if (!cityRoot) return;
+    scene.remove(cityRoot);
+    cityRoot.traverse((obj) => {
+      if (obj.geometry) obj.geometry.dispose();
+    });
+    cityRoot = null;
+  }
+
+  // Atmospheric Sky Dome with Zenith-to-Horizon Gradient (repainted for day/night).
   const skyCanvas = document.createElement('canvas');
   skyCanvas.width = 16;
   skyCanvas.height = 256;
   const skyCtx = skyCanvas.getContext('2d');
-  const skyGrad = skyCtx.createLinearGradient(0, 0, 0, 256);
-  skyGrad.addColorStop(0.0, '#1c75bc'); // Deep vibrant zenith
-  skyGrad.addColorStop(0.45, '#4ba3e3'); // Sunny blue sky
-  skyGrad.addColorStop(0.8, '#90cbfb'); // Soft azure
-  skyGrad.addColorStop(1.0, '#d8e8f8'); // Horizon haze matching fog
-  skyCtx.fillStyle = skyGrad;
-  skyCtx.fillRect(0, 0, 16, 256);
   const skyTex = new THREE.CanvasTexture(skyCanvas);
   const skyDome = new THREE.Mesh(
     new THREE.SphereGeometry(650, 32, 16),
     new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, depthWrite: false })
   );
   scene.add(skyDome);
+
+  function paintSkyDome(isNight, isRain) {
+    const grad = skyCtx.createLinearGradient(0, 0, 0, 256);
+    if (isNight && isRain) {
+      grad.addColorStop(0.0, '#04060c');
+      grad.addColorStop(0.4, '#0a1424');
+      grad.addColorStop(0.75, '#121c2c');
+      grad.addColorStop(1.0, '#1a222e');
+    } else if (isNight) {
+      grad.addColorStop(0.0, '#050814');
+      grad.addColorStop(0.35, '#0b1a3a');
+      grad.addColorStop(0.7, '#152848');
+      grad.addColorStop(1.0, '#1a2438');
+    } else if (isRain) {
+      grad.addColorStop(0.0, '#5a6a78');
+      grad.addColorStop(0.4, '#6e7e8c');
+      grad.addColorStop(0.75, '#8a96a2');
+      grad.addColorStop(1.0, '#a8b0b8');
+    } else {
+      grad.addColorStop(0.0, '#1c75bc');
+      grad.addColorStop(0.45, '#4ba3e3');
+      grad.addColorStop(0.8, '#90cbfb');
+      grad.addColorStop(1.0, '#d8e8f8');
+    }
+    skyCtx.fillStyle = grad;
+    skyCtx.fillRect(0, 0, 16, 256);
+    skyTex.needsUpdate = true;
+  }
+  paintSkyDome(false, false);
 
   // Procedural Fluffy Stylized LEGO Clouds
   const cloudsGroup = new THREE.Group();
@@ -255,6 +432,267 @@
 
   const ambLight = new THREE.AmbientLight(0xfff8f0, 0.28);
   scene.add(ambLight);
+
+  // Shared street-lamp glass — emissive boosted at night.
+  const matStreetLampGlass = new THREE.MeshStandardMaterial({
+    color: 0xfffa65,
+    emissive: 0xfffa65,
+    emissiveIntensity: 0.85,
+    roughness: 0.35
+  });
+
+  function registerNightGlow(mat, dayEmissive, nightEmissive) {
+    if (!mat) return;
+    mat.userData.dayEmissive = dayEmissive;
+    mat.userData.nightEmissive = nightEmissive;
+    nightGlowMats.push(mat);
+  }
+
+  // Shared asphalt — wetness toggled in applyAtmosphere (one material, zero extra draws).
+  const matRoad = new THREE.MeshStandardMaterial({
+    color: 0x22262c,
+    roughness: 0.65,
+    metalness: 0.04
+  });
+
+  function applyRoadSurface(isRain) {
+    if (isRain) {
+      matRoad.color.setHex(0x151920);
+      matRoad.roughness = 0.2;
+      matRoad.metalness = 0.48;
+    } else {
+      matRoad.color.setHex(0x22262c);
+      matRoad.roughness = 0.65;
+      matRoad.metalness = 0.04;
+    }
+  }
+
+  // --- Rain particle field (budget: ≤ 1000 Points vertices) ---
+  const RAIN_COUNT = 800;
+  const rainPositions = new Float32Array(RAIN_COUNT * 3);
+  const rainSpeeds = new Float32Array(RAIN_COUNT);
+  for (let ri = 0; ri < RAIN_COUNT; ri++) {
+    rainPositions[ri * 3] = (Math.random() - 0.5) * 70;
+    rainPositions[ri * 3 + 1] = Math.random() * 45;
+    rainPositions[ri * 3 + 2] = (Math.random() - 0.5) * 70;
+    rainSpeeds[ri] = 0.5 + Math.random() * 0.55;
+  }
+  const rainGeo = new THREE.BufferGeometry();
+  rainGeo.setAttribute('position', new THREE.BufferAttribute(rainPositions, 3));
+  const rainMat = new THREE.PointsMaterial({
+    color: 0xbdd4ff,
+    size: 0.2,
+    transparent: true,
+    opacity: 0.55,
+    depthWrite: false,
+    sizeAttenuation: true
+  });
+  const rainPoints = new THREE.Points(rainGeo, rainMat);
+  rainPoints.frustumCulled = false;
+  rainPoints.visible = false;
+  scene.add(rainPoints);
+
+  // Clear-night star field on the upper hemisphere (inside the sky dome).
+  const STAR_COUNT = 280;
+  const starPositions = new Float32Array(STAR_COUNT * 3);
+  for (let si = 0; si < STAR_COUNT; si++) {
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.random() * Math.PI * 0.42; // from zenith downward
+    const r = 560 + Math.random() * 40;
+    starPositions[si * 3] = r * Math.sin(phi) * Math.cos(theta);
+    starPositions[si * 3 + 1] = r * Math.cos(phi);
+    starPositions[si * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
+  }
+  const starGeo = new THREE.BufferGeometry();
+  starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+  const starMat = new THREE.PointsMaterial({
+    color: 0xe8f0ff,
+    size: 2.4,
+    transparent: true,
+    opacity: 0.8,
+    depthWrite: false,
+    sizeAttenuation: false // fixed pixel size so distant sky dots stay visible
+  });
+  const starPoints = new THREE.Points(starGeo, starMat);
+  starPoints.frustumCulled = false;
+  starPoints.visible = false;
+  scene.add(starPoints);
+
+  function updateRainParticles() {
+    if (!rainPoints.visible) return;
+    const arr = rainGeo.attributes.position.array;
+    const cx = levelBooted ? truckPhys.x : 0;
+    const cz = levelBooted ? truckPhys.z : 0;
+    const half = 38;
+    for (let i = 0; i < RAIN_COUNT; i++) {
+      const i3 = i * 3;
+      arr[i3 + 1] -= rainSpeeds[i];
+      arr[i3] += 0.07;
+      if (arr[i3 + 1] < 0) {
+        arr[i3] = cx + (Math.random() - 0.5) * half * 2;
+        arr[i3 + 1] = 16 + Math.random() * 30;
+        arr[i3 + 2] = cz + (Math.random() - 0.5) * half * 2;
+      } else {
+        if (arr[i3] < cx - half) arr[i3] += half * 2;
+        if (arr[i3] > cx + half) arr[i3] -= half * 2;
+        if (arr[i3 + 2] < cz - half) arr[i3 + 2] += half * 2;
+        if (arr[i3 + 2] > cz + half) arr[i3 + 2] -= half * 2;
+      }
+    }
+    rainGeo.attributes.position.needsUpdate = true;
+  }
+
+  function updateStarField() {
+    if (!starPoints.visible) return;
+    // Soft twinkle — opacity only, no per-star CPU work.
+    const t = performance.now() * 0.0015;
+    starMat.opacity = 0.55 + Math.sin(t) * 0.12 + Math.sin(t * 2.3) * 0.08;
+  }
+
+  function applyAtmosphere(tod, weather) {
+    const mode = (tod === 'night') ? 'night' : 'day';
+    const wx = (weather === 'rain') ? 'rain' : 'clear';
+    activeTimeOfDay = mode;
+    activeWeather = wx;
+    const isNight = mode === 'night';
+    const isRain = wx === 'rain';
+
+    paintSkyDome(isNight, isRain);
+    if (cloudsGroup) {
+      // Overcast daytime keeps clouds; clear night hides them.
+      cloudsGroup.visible = !isNight || isRain;
+      if (matCloud) {
+        matCloud.color.setHex(isRain ? 0x8a93a0 : 0xffffff);
+      }
+    }
+    if (rainPoints) {
+      rainPoints.visible = isRain;
+      rainMat.opacity = isNight ? 0.4 : 0.55;
+      rainMat.color.setHex(isNight ? 0x8aa0c8 : 0xbdd4ff);
+    }
+    if (starPoints) {
+      // Stars only on a clear night — rain/clouds hide them.
+      starPoints.visible = isNight && !isRain;
+    }
+    applyRoadSurface(isRain);
+
+    if (hemiLight) {
+      if (isNight) {
+        hemiLight.color.setHex(0x1a2744);
+        hemiLight.groundColor.setHex(0x0a1018);
+        hemiLight.intensity = isRain ? 0.16 : 0.2;
+      } else if (isRain) {
+        hemiLight.color.setHex(0x9aa8b4);
+        hemiLight.groundColor.setHex(0x3a463c);
+        hemiLight.intensity = 0.45;
+      } else {
+        hemiLight.color.setHex(0x9bd0ff);
+        hemiLight.groundColor.setHex(0x416538);
+        hemiLight.intensity = 0.62;
+      }
+    }
+    if (sunLight) {
+      if (isNight) {
+        sunLight.color.setHex(0xa8c4ff);
+        sunLight.intensity = isRain ? 0.18 : 0.26;
+      } else if (isRain) {
+        sunLight.color.setHex(0xd0d6dc);
+        sunLight.intensity = 0.75;
+      } else {
+        sunLight.color.setHex(0xfffaec);
+        sunLight.intensity = 1.6;
+      }
+    }
+    if (ambLight) {
+      if (isNight) {
+        ambLight.color.setHex(0x243048);
+        ambLight.intensity = 0.1;
+      } else if (isRain) {
+        ambLight.color.setHex(0xcfd6dc);
+        ambLight.intensity = 0.22;
+      } else {
+        ambLight.color.setHex(0xfff8f0);
+        ambLight.intensity = 0.28;
+      }
+    }
+
+    renderer.toneMappingExposure = isNight ? (isRain ? 0.62 : 0.7) : (isRain ? 0.95 : 1.22);
+    if (scene.fog) {
+      if (isNight && isRain) scene.fog.color.setHex(0x0a1018);
+      else if (isNight) scene.fog.color.setHex(0x0b1220);
+      else if (isRain) scene.fog.color.setHex(0x8a96a2);
+      else scene.fog.color.setHex(0xd8e8f8);
+      scene.fog.near = WORLD_SIZE * (isRain ? 0.18 : (isNight ? 0.22 : 0.28));
+      scene.fog.far = WORLD_SIZE * (isRain ? 0.85 : (isNight ? 0.95 : 1.2));
+    }
+
+    // Lamps glow more at night; rain daytime also lifts them a bit.
+    const lampBoost = isNight ? 2.4 : (isRain ? 1.35 : 0.85);
+    matStreetLampGlass.emissiveIntensity = lampBoost;
+    if (todVehicleMats.headlight) todVehicleMats.headlight.emissiveIntensity = isNight ? 1.7 : 0.9;
+    if (todVehicleMats.taillight) todVehicleMats.taillight.emissiveIntensity = isNight ? 1.35 : 0.8;
+    // Amber base for the pulsing warning beacons (intensity driven every frame).
+    amberBeaconBase = isNight ? 1.55 : (isRain ? 1.05 : 0.9);
+    if (todVehicleMats.npcHead) todVehicleMats.npcHead.emissiveIntensity = isNight ? 1.4 : 0.75;
+    if (todVehicleMats.npcTail) todVehicleMats.npcTail.emissiveIntensity = isNight ? 1.15 : 0.65;
+
+    for (let i = 0; i < nightGlowMats.length; i++) {
+      const mat = nightGlowMats[i];
+      if (!mat || !mat.userData) continue;
+      const dayE = mat.userData.dayEmissive;
+      const nightE = mat.userData.nightEmissive;
+      if (dayE === undefined || nightE === undefined) continue;
+      mat.emissiveIntensity = isNight ? nightE : (isRain ? dayE * 1.35 : dayE);
+    }
+
+    if (mapSelectModal) {
+      const card = mapSelectModal.querySelector('.map-select-card');
+      if (card) {
+        card.classList.toggle('tod-night', isNight);
+        card.classList.toggle('weather-rain', isRain);
+      }
+    }
+
+    if (window.soundManager && typeof window.soundManager.setRain === 'function') {
+      window.soundManager.setRain(isRain);
+    }
+  }
+
+  function applyTimeOfDay(tod) {
+    applyAtmosphere(tod, activeWeather);
+  }
+
+  function loadTimeOfDayPref() {
+    const raw = safeGetItem(TOD_STORAGE_KEY);
+    return raw === 'night' ? 'night' : 'day';
+  }
+
+  function saveTimeOfDayPref(tod) {
+    safeSetItem(TOD_STORAGE_KEY, tod === 'night' ? 'night' : 'day');
+  }
+
+  function loadWeatherPref() {
+    const raw = safeGetItem(WEATHER_STORAGE_KEY);
+    return raw === 'rain' ? 'rain' : 'clear';
+  }
+
+  function saveWeatherPref(weather) {
+    safeSetItem(WEATHER_STORAGE_KEY, weather === 'rain' ? 'rain' : 'clear');
+  }
+
+  function setPendingTimeOfDay(tod) {
+    pendingTimeOfDay = tod === 'night' ? 'night' : 'day';
+    if (todDayBtn) todDayBtn.classList.toggle('selected', pendingTimeOfDay === 'day');
+    if (todNightBtn) todNightBtn.classList.toggle('selected', pendingTimeOfDay === 'night');
+    applyAtmosphere(pendingTimeOfDay, pendingWeather);
+  }
+
+  function setPendingWeather(weather) {
+    pendingWeather = weather === 'rain' ? 'rain' : 'clear';
+    if (weatherClearBtn) weatherClearBtn.classList.toggle('selected', pendingWeather === 'clear');
+    if (weatherRainBtn) weatherRainBtn.classList.toggle('selected', pendingWeather === 'rain');
+    applyAtmosphere(pendingTimeOfDay, pendingWeather);
+  }
 
   // --- Controls State ---
   // `up/down/left/right/space` track the physical keys; `dumpLockUntil` is a
@@ -497,9 +935,89 @@
   if (recordsCloseBtn) recordsCloseBtn.addEventListener('click', () => recordsModal.classList.remove('show'));
   if (recordsOkBtn) recordsOkBtn.addEventListener('click', () => recordsModal.classList.remove('show'));
 
+  function refreshMapSelectRecords() {
+    const stats = loadMetaStats();
+    if (mapRecDowntown) {
+      mapRecDowntown.textContent = `Рекорд: ${formatDuration(stats.bestTimeByMap.downtown)}`;
+    }
+    if (mapRecSuburb) {
+      mapRecSuburb.textContent = `Рекорд: ${formatDuration(stats.bestTimeByMap.suburb)}`;
+    }
+    if (mapRecIndustrial) {
+      mapRecIndustrial.textContent = `Рекорд: ${formatDuration(stats.bestTimeByMap.industrial)}`;
+    }
+  }
+
+  function setPendingMapSelection(mapId) {
+    pendingMapId = normalizeMapId(mapId);
+    if (mapCardDowntown) mapCardDowntown.classList.toggle('selected', pendingMapId === 'downtown');
+    if (mapCardSuburb) mapCardSuburb.classList.toggle('selected', pendingMapId === 'suburb');
+    if (mapCardIndustrial) mapCardIndustrial.classList.toggle('selected', pendingMapId === 'industrial');
+  }
+
+  function openMapSelectModal() {
+    pendingMapId = activeMapId;
+    setPendingMapSelection(pendingMapId);
+    setPendingTimeOfDay(pendingTimeOfDay || activeTimeOfDay || loadTimeOfDayPref());
+    setPendingWeather(pendingWeather || activeWeather || loadWeatherPref());
+    refreshMapSelectRecords();
+    if (victoryModal) victoryModal.classList.remove('show');
+    if (mapSelectModal) mapSelectModal.classList.add('show');
+  }
+
+  function startShiftOnSelectedMap() {
+    activeMapId = pendingMapId;
+    activeTimeOfDay = pendingTimeOfDay;
+    activeWeather = pendingWeather;
+    saveTimeOfDayPref(activeTimeOfDay);
+    saveWeatherPref(activeWeather);
+    if (mapSelectModal) mapSelectModal.classList.remove('show');
+    initLevel();
+    levelBooted = true;
+    updateBestTimeHUD();
+    if (activeWeather === 'rain') {
+      showToast('МОКРАЯ ДОРОГА', 'Дворники работают. Тормозной путь длиннее, руль мягче.', '🌧️', 3200);
+    }
+  }
+
+  if (mapCardDowntown) {
+    mapCardDowntown.addEventListener('click', () => setPendingMapSelection('downtown'));
+  }
+  if (mapCardSuburb) {
+    mapCardSuburb.addEventListener('click', () => setPendingMapSelection('suburb'));
+  }
+  if (mapCardIndustrial) {
+    mapCardIndustrial.addEventListener('click', () => setPendingMapSelection('industrial'));
+  }
+  if (todDayBtn) {
+    todDayBtn.addEventListener('click', () => setPendingTimeOfDay('day'));
+  }
+  if (todNightBtn) {
+    todNightBtn.addEventListener('click', () => setPendingTimeOfDay('night'));
+  }
+  if (weatherClearBtn) {
+    weatherClearBtn.addEventListener('click', () => setPendingWeather('clear'));
+  }
+  if (weatherRainBtn) {
+    weatherRainBtn.addEventListener('click', () => setPendingWeather('rain'));
+  }
+  if (btnStartMapShift) {
+    btnStartMapShift.addEventListener('click', startShiftOnSelectedMap);
+  }
+  if (mapSelectBtn) {
+    mapSelectBtn.addEventListener('click', () => {
+      if (gameState.status === 'collecting' && levelBooted) {
+        // Confirm by opening the picker — starting a map resets the shift.
+        openMapSelectModal();
+      } else {
+        openMapSelectModal();
+      }
+    });
+  }
+
   btnRestartLevel.addEventListener('click', () => {
     victoryModal.classList.remove('show');
-    initLevel();
+    openMapSelectModal();
   });
   btnFreeDrive.addEventListener('click', () => {
     victoryModal.classList.remove('show');
@@ -593,8 +1111,9 @@
       routesCompleted: 0,
       totalRecycledKg: 0,
       bestTimeSec: null,
+      bestTimeByMap: { downtown: null, suburb: null, industrial: null },
       categories: { plastic: 0, paper: 0, glass: 0 },
-      history: [] // [{ date, durationSec, breakdown: { plastic, paper, glass } }]
+      history: [] // [{ date, durationSec, breakdown, mapId }]
     };
   }
 
@@ -604,6 +1123,7 @@
     return {
       date: typeof raw.date === 'string' ? raw.date : new Date().toISOString(),
       durationSec: Number.isFinite(raw.durationSec) ? raw.durationSec : 0,
+      mapId: normalizeMapId(raw.mapId),
       breakdown: {
         plastic: Number(breakdown.plastic) || 0,
         paper: Number(breakdown.paper) || 0,
@@ -628,6 +1148,15 @@
     stats.totalRecycledKg = Number(parsed.totalRecycledKg) || 0;
     stats.bestTimeSec = Number.isFinite(parsed.bestTimeSec) ? parsed.bestTimeSec : null;
 
+    // Per-map best times (+ migrate legacy global best → downtown).
+    const byMap = parsed.bestTimeByMap || {};
+    stats.bestTimeByMap.downtown = Number.isFinite(byMap.downtown) ? byMap.downtown : null;
+    stats.bestTimeByMap.suburb = Number.isFinite(byMap.suburb) ? byMap.suburb : null;
+    stats.bestTimeByMap.industrial = Number.isFinite(byMap.industrial) ? byMap.industrial : null;
+    if (stats.bestTimeByMap.downtown === null && Number.isFinite(stats.bestTimeSec)) {
+      stats.bestTimeByMap.downtown = stats.bestTimeSec;
+    }
+
     // Category totals: accept both the new material-type keys and the legacy colours.
     const parsedCats = parsed.categories || {};
     const parsedByType = parsed.breakdownByType || {};
@@ -646,8 +1175,8 @@
   }
 
   // Record a completed route: append to the history log, update career totals
-  // and the best-time record. Returns { isNewRecord } for the UI trophy pill.
-  function recordRouteCompletion(durationSec, breakdown) {
+  // and the best-time record (global + per-map). Returns { isNewRecord }.
+  function recordRouteCompletion(durationSec, breakdown, mapId) {
     const stats = loadMetaStats();
     const safeBreakdown = {
       plastic: Number(breakdown && breakdown.plastic) || 0,
@@ -655,6 +1184,7 @@
       glass: Number(breakdown && breakdown.glass) || 0
     };
     const totalKg = safeBreakdown.plastic + safeBreakdown.paper + safeBreakdown.glass;
+    const mid = normalizeMapId(mapId);
 
     stats.routesCompleted += 1;
     stats.totalRecycledKg += totalKg;
@@ -662,12 +1192,17 @@
     stats.categories.paper += safeBreakdown.paper;
     stats.categories.glass += safeBreakdown.glass;
 
+    const prevMapBest = stats.bestTimeByMap[mid];
+    const isNewMapRecord = prevMapBest === null || durationSec < prevMapBest;
+    if (isNewMapRecord) stats.bestTimeByMap[mid] = durationSec;
+
     const isNewRecord = stats.bestTimeSec === null || durationSec < stats.bestTimeSec;
     if (isNewRecord) stats.bestTimeSec = durationSec;
 
     stats.history.unshift({
       date: new Date().toISOString(),
       durationSec: durationSec,
+      mapId: mid,
       breakdown: safeBreakdown
     });
     if (stats.history.length > MAX_HISTORY_ENTRIES) {
@@ -675,7 +1210,7 @@
     }
 
     saveMetaStats(stats);
-    return { isNewRecord: isNewRecord, stats: stats };
+    return { isNewRecord: isNewMapRecord, stats: stats };
   }
 
   function formatDuration(sec) {
@@ -692,11 +1227,13 @@
     return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${String(d.getFullYear()).slice(-2)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
 
-  // Show the stored personal best route time in the persistent HUD badge.
+  // Show the personal best for the *active* map in the persistent HUD badge.
   function updateBestTimeHUD() {
     const stats = loadMetaStats();
-    if (bestTimeHud) bestTimeHud.textContent = formatDuration(stats.bestTimeSec);
-    if (bestTimeBadge) bestTimeBadge.style.display = stats.bestTimeSec === null ? 'none' : 'flex';
+    const mapBest = stats.bestTimeByMap[activeMapId];
+    const show = Number.isFinite(mapBest);
+    if (bestTimeHud) bestTimeHud.textContent = formatDuration(show ? mapBest : null);
+    if (bestTimeBadge) bestTimeBadge.style.display = show ? 'flex' : 'none';
   }
 
   function updateRecordsModalUI() {
@@ -725,11 +1262,13 @@
         const info = MATERIAL_INFO[t];
         return `<span class="history-mat" title="${info.title}"><i class="mat-dot ${matClass[t]}"></i>${b[t] || 0} кг</span>`;
       }).join('');
+      const mapTitle = (MAP_PROFILES[entry.mapId] || MAP_PROFILES.downtown).title;
       return `
         <div class="history-row">
           <div class="history-row-head">
             <span class="history-index">#${history.length - idx}</span>
             <span class="history-date">${formatHistoryDate(entry.date)}</span>
+            <span class="history-map">${mapTitle}</span>
             <span class="history-time">${formatDuration(entry.durationSec)}</span>
           </div>
           <div class="history-row-body">${matCells}</div>
@@ -743,6 +1282,7 @@
   // `breakdown` keeps a separate running weight (kg) per material type.
   const gameState = {
     status: 'collecting',
+    mapId: 'downtown',
     totalBins: 12,
     // Total containers picked up during the whole shift (0..totalBins).
     // This figure survives mid-route dumps: it only ever grows. The live
@@ -896,6 +1436,23 @@
   const matHeadlight = new THREE.MeshStandardMaterial({ color: 0xfffa65, emissive: 0xfffa65, emissiveIntensity: 0.9 });
   const matTaillight = new THREE.MeshStandardMaterial({ color: 0xff3838, emissive: 0xff3838, emissiveIntensity: 0.8 });
   const matAmberBeacon = new THREE.MeshStandardMaterial({ color: 0xf39c12, emissive: 0xf39c12, emissiveIntensity: 0.85 });
+  let amberBeaconBase = 0.9;
+  let amberFlashUntil = 0;
+  todVehicleMats.headlight = matHeadlight;
+  todVehicleMats.taillight = matTaillight;
+  todVehicleMats.amber = matAmberBeacon;
+
+  // Municipal warning-beacon pulse (sharp flash on a slow cycle).
+  function updateAmberBeacons() {
+    const now = performance.now();
+    if (now < amberFlashUntil) {
+      matAmberBeacon.emissiveIntensity = 2.6;
+      return;
+    }
+    const t = now * 0.0075;
+    const sharp = Math.pow(Math.max(0, Math.sin(t * 2.15)), 7);
+    matAmberBeacon.emissiveIntensity = amberBeaconBase * (0.32 + 1.25 * sharp);
+  }
   const matChrome = new THREE.MeshStandardMaterial({ color: 0xf5f6fa, roughness: 0.05, metalness: 0.95 });
 
   // Reusable Lego Stud Geometry for authentic Lego Technic detailing
@@ -935,15 +1492,56 @@
   windMesh.position.set(0, 1.25, 1.22);
   cabGroup.add(windMesh);
 
-  // Wiper blades on windshield
+  // Wiper blades on windshield — pivots at the glass base; sweep UP across the pane.
+  // Left blade extends −X, right +X. Negative/positive rot.z respectively lifts the tip (+Y).
+  const WIPER_REST = 0.1;
+  const WIPER_SWEEP = 1.05;
   const wiperMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.5 });
-  const wiperL = new THREE.Mesh(new THREE.BoxGeometry(0.65, 0.04, 0.04), wiperMat);
-  wiperL.position.set(-0.55, 1.05, 1.31);
-  wiperL.rotation.z = -0.35;
-  const wiperR = new THREE.Mesh(new THREE.BoxGeometry(0.65, 0.04, 0.04), wiperMat);
-  wiperR.position.set(0.55, 1.05, 1.31);
-  wiperR.rotation.z = -0.35;
-  cabGroup.add(wiperL, wiperR);
+  const wiperBladeGeo = new THREE.BoxGeometry(0.72, 0.045, 0.045);
+  const wiperPivotL = new THREE.Group();
+  wiperPivotL.position.set(-0.22, 0.95, 1.31);
+  const wiperL = new THREE.Mesh(wiperBladeGeo, wiperMat);
+  wiperL.position.set(-0.34, 0.02, 0);
+  wiperPivotL.add(wiperL);
+  wiperPivotL.rotation.z = -WIPER_REST;
+  const wiperPivotR = new THREE.Group();
+  wiperPivotR.position.set(0.22, 0.95, 1.31);
+  const wiperR = new THREE.Mesh(wiperBladeGeo, wiperMat);
+  wiperR.position.set(0.34, 0.02, 0);
+  wiperPivotR.add(wiperR);
+  wiperPivotR.rotation.z = WIPER_REST;
+  cabGroup.add(wiperPivotL, wiperPivotR);
+
+  let wiperPhase = 0;
+  let wipersRunning = false;
+
+  function setWiperAngles(sweepAmount) {
+    const a = WIPER_REST + sweepAmount;
+    wiperPivotL.rotation.z = -a;
+    wiperPivotR.rotation.z = a;
+  }
+
+  // Sweep while raining; ease back to the parked rest pose when clear.
+  function updateWipers() {
+    const raining = activeWeather === 'rain';
+    if (raining) {
+      wipersRunning = true;
+      wiperPhase += 0.07;
+      // Smooth back-and-forth (0 → 1 → 0) without a hard reverse snap.
+      const t = (Math.sin(wiperPhase) + 1) * 0.5;
+      setWiperAngles(t * WIPER_SWEEP);
+      return;
+    }
+    if (!wipersRunning) return;
+    const cur = Math.abs(wiperPivotL.rotation.z);
+    const next = cur + (WIPER_REST - cur) * 0.12;
+    setWiperAngles(Math.max(0, next - WIPER_REST));
+    if (Math.abs(Math.abs(wiperPivotL.rotation.z) - WIPER_REST) < 0.02) {
+      setWiperAngles(0);
+      wipersRunning = false;
+      wiperPhase = 0;
+    }
+  }
 
   // Technic White A-Pillars with circular pin holes
   const pGeom = new THREE.BoxGeometry(0.18, 1.05, 0.18);
@@ -1627,7 +2225,7 @@
   }
 
   // --- Authentic LEGO Minifigure Model ---
-  function createMinifigure3D(x, z, rotY, shirtColor, pantsColor, hasCap) {
+  function createMinifigure3D(x, z, rotY, shirtColor, pantsColor, hasCap, opts) {
     const mini = new THREE.Group();
     mini.position.set(x, 0.35, z);
     mini.rotation.y = rotY;
@@ -1639,11 +2237,20 @@
 
     const hips = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.14, 0.22), matPants);
     hips.position.y = 0.46;
-    const legL = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.42, 0.2), matPants);
-    legL.position.set(-0.11, 0.21, 0);
-    const legR = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.42, 0.2), matPants);
-    legR.position.set(0.11, 0.21, 0);
+    // Pivot legs at the hip so walk cycles swing around the joint, not the shin centre.
+    const legL = new THREE.Group();
+    legL.position.set(-0.11, 0.42, 0);
+    const legLMesh = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.42, 0.2), matPants);
+    legLMesh.position.y = -0.21;
+    legL.add(legLMesh);
+    const legR = new THREE.Group();
+    legR.position.set(0.11, 0.42, 0);
+    const legRMesh = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.42, 0.2), matPants);
+    legRMesh.position.y = -0.21;
+    legR.add(legRMesh);
     mini.add(hips, legL, legR);
+    mini.userData.legL = legL;
+    mini.userData.legR = legR;
 
     const torsoGeom = new THREE.CylinderGeometry(0.34, 0.42, 0.48, 4);
     torsoGeom.rotateY(Math.PI / 4);
@@ -1685,7 +2292,8 @@
       mini.add(arm, hand);
     });
 
-    scene.add(mini);
+    // Walking pedestrians are managed in `scene` (like NPC cars); static props stay in cityRoot.
+    if (!(opts && opts.skipCityAdd)) cityAdd(mini);
     return mini;
   }
 
@@ -1758,7 +2366,7 @@
     }
     fenceGroup.matrixAutoUpdate = false;
     fenceGroup.updateMatrix();
-    scene.add(fenceGroup);
+    cityAdd(fenceGroup);
     return fenceGroup;
   }
 
@@ -1787,35 +2395,48 @@
       bench.add(leg, backPost);
     });
 
-    scene.add(bench);
+    cityAdd(bench);
     return bench;
   }
 
   function generate3DCity() {
-    buildings3D.forEach(b => scene.remove(b));
+    const map = getActiveMap();
+    gridCoords = map.gridCoords.slice();
+    ROAD_EDGE = map.roadEdge;
+    WORLD_SIZE = map.worldSize || WORLD_SIZE;
+    ROAD_W = map.roadWidth || ROAD_W;
+
+    disposeCityRoot();
+    nightGlowMats.length = 0;
     trashBins3D.forEach(b => {
       scene.remove(b.mesh);
       if (b.marker) scene.remove(b.marker);
     });
-    if (recyclingPlant3D && recyclingPlant3D.beacon) {
-      scene.remove(recyclingPlant3D.beacon);
-    }
     buildings3D = [];
     trashBins3D = [];
     recyclingPlant3D = null;
     colliders.length = 0;
+    crosswalks = [];
+
+    cityRoot = new THREE.Group();
+    cityRoot.name = 'cityRoot';
+    scene.add(cityRoot);
 
     // Ground Grass Plane
     const groundGeom = new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE);
     groundGeom.rotateX(-Math.PI / 2);
-    const ground = new THREE.Mesh(groundGeom, new THREE.MeshStandardMaterial({ color: 0x1f8441, roughness: 0.75 }));
+    const ground = new THREE.Mesh(
+      groundGeom,
+      new THREE.MeshStandardMaterial({ color: map.groundColor || 0x1f8441, roughness: 0.75 })
+    );
     ground.receiveShadow = true;
-    scene.add(ground);
+    cityAdd(ground);
 
     // Asphalt Roads — cut off right after the outermost intersections so the
     // perimeter sidewalks sit flush against the kerb (ROAD_EDGE = ±128).
     const ROAD_LEN = 2 * ROAD_EDGE;
-    const matRoad = new THREE.MeshStandardMaterial({ color: 0x22262c, roughness: 0.65 });
+    // Reuse shared matRoad so rain wetness survives city rebuilds.
+    applyRoadSurface(activeWeather === 'rain');
     gridCoords.forEach(gz => {
       const road = new THREE.Mesh(new THREE.PlaneGeometry(ROAD_LEN, ROAD_W), matRoad);
       road.rotateX(-Math.PI / 2);
@@ -1823,7 +2444,7 @@
       road.receiveShadow = true;
       road.matrixAutoUpdate = false;
       road.updateMatrix();
-      scene.add(road);
+      cityAdd(road);
     });
     gridCoords.forEach(gx => {
       const road = new THREE.Mesh(new THREE.PlaneGeometry(ROAD_W, ROAD_LEN), matRoad);
@@ -1832,20 +2453,13 @@
       road.receiveShadow = true;
       road.matrixAutoUpdate = false;
       road.updateMatrix();
-      scene.add(road);
+      cityAdd(road);
     });
 
     const matZebra = new THREE.MeshStandardMaterial({ color: 0xf5f6fa, roughness: 0.4 });
 
-    // Road Markings (Dashed Centerlines, White Shoulder Borders, Blue Bike Lanes, Stop Bars)
-    // Only the three mid-block runs survive: the former outer stubs sat beyond
-    // the ±120 intersections, i.e. on top of the perimeter belt, and the road
-    // itself now stops at ±ROAD_EDGE (±128).
-    const roadIntervals = [
-      { start: -105, end: -55 },
-      { start: -25, end: 25 },
-      { start: 55, end: 105 }
-    ];
+    // Mid-block marking runs derived from the active map's intersection grid.
+    const roadIntervals = buildRoadIntervals(gridCoords);
 
     // Horizontal road markings
     gridCoords.forEach(gz => {
@@ -1859,7 +2473,7 @@
           dash.position.set(x + 1.6, 0.032, gz);
           dash.matrixAutoUpdate = false;
           dash.updateMatrix();
-          scene.add(dash);
+          cityAdd(dash);
         }
 
         const sLine1 = new THREE.Mesh(new THREE.PlaneGeometry(segLen, 0.22), matZebra);
@@ -1873,21 +2487,24 @@
         sLine2.position.set(midX, 0.032, gz - ROAD_W / 2 + 0.45);
         sLine2.matrixAutoUpdate = false;
         sLine2.updateMatrix();
-        scene.add(sLine1, sLine2);
+        cityAdd(sLine1, sLine2);
 
-        const bikeLane = new THREE.Mesh(new THREE.PlaneGeometry(segLen, 1.85), getBikeLaneMaterial());
-        bikeLane.rotateX(-Math.PI / 2);
-        bikeLane.position.set(midX, 0.031, gz - ROAD_W / 2 + 1.45);
-        bikeLane.matrixAutoUpdate = false;
-        bikeLane.updateMatrix();
-        scene.add(bikeLane);
+        // No bike lanes on the industrial map — wide truck carriageways only.
+        if (map.theme !== 'industrial') {
+          const bikeLane = new THREE.Mesh(new THREE.PlaneGeometry(segLen, 1.85), getBikeLaneMaterial());
+          bikeLane.rotateX(-Math.PI / 2);
+          bikeLane.position.set(midX, 0.031, gz - ROAD_W / 2 + 1.45);
+          bikeLane.matrixAutoUpdate = false;
+          bikeLane.updateMatrix();
+          cityAdd(bikeLane);
 
-        const bSep = new THREE.Mesh(new THREE.PlaneGeometry(segLen, 0.16), matZebra);
-        bSep.rotateX(-Math.PI / 2);
-        bSep.position.set(midX, 0.033, gz - ROAD_W / 2 + 2.4);
-        bSep.matrixAutoUpdate = false;
-        bSep.updateMatrix();
-        scene.add(bSep);
+          const bSep = new THREE.Mesh(new THREE.PlaneGeometry(segLen, 0.16), matZebra);
+          bSep.rotateX(-Math.PI / 2);
+          bSep.position.set(midX, 0.033, gz - ROAD_W / 2 + 2.4);
+          bSep.matrixAutoUpdate = false;
+          bSep.updateMatrix();
+          cityAdd(bSep);
+        }
       });
     });
 
@@ -1903,7 +2520,7 @@
           dash.position.set(gx, 0.032, z + 1.6);
           dash.matrixAutoUpdate = false;
           dash.updateMatrix();
-          scene.add(dash);
+          cityAdd(dash);
         }
 
         const sLine1 = new THREE.Mesh(new THREE.PlaneGeometry(0.22, segLen), matZebra);
@@ -1917,21 +2534,23 @@
         sLine2.position.set(gx - ROAD_W / 2 + 0.45, 0.032, midZ);
         sLine2.matrixAutoUpdate = false;
         sLine2.updateMatrix();
-        scene.add(sLine1, sLine2);
+        cityAdd(sLine1, sLine2);
 
-        const bikeLane = new THREE.Mesh(new THREE.PlaneGeometry(1.85, segLen), getBikeLaneMaterial());
-        bikeLane.rotateX(-Math.PI / 2);
-        bikeLane.position.set(gx - ROAD_W / 2 + 1.45, 0.031, midZ);
-        bikeLane.matrixAutoUpdate = false;
-        bikeLane.updateMatrix();
-        scene.add(bikeLane);
+        if (map.theme !== 'industrial') {
+          const bikeLane = new THREE.Mesh(new THREE.PlaneGeometry(1.85, segLen), getBikeLaneMaterial());
+          bikeLane.rotateX(-Math.PI / 2);
+          bikeLane.position.set(gx - ROAD_W / 2 + 1.45, 0.031, midZ);
+          bikeLane.matrixAutoUpdate = false;
+          bikeLane.updateMatrix();
+          cityAdd(bikeLane);
 
-        const bSep = new THREE.Mesh(new THREE.PlaneGeometry(0.16, segLen), matZebra);
-        bSep.rotateX(-Math.PI / 2);
-        bSep.position.set(gx - ROAD_W / 2 + 2.4, 0.033, midZ);
-        bSep.matrixAutoUpdate = false;
-        bSep.updateMatrix();
-        scene.add(bSep);
+          const bSep = new THREE.Mesh(new THREE.PlaneGeometry(0.16, segLen), matZebra);
+          bSep.rotateX(-Math.PI / 2);
+          bSep.position.set(gx - ROAD_W / 2 + 2.4, 0.033, midZ);
+          bSep.matrixAutoUpdate = false;
+          bSep.updateMatrix();
+          cityAdd(bSep);
+        }
       });
     });
 
@@ -1955,7 +2574,7 @@
         mh.position.set(gx, 0.035, gz);
         mh.matrixAutoUpdate = false;
         mh.updateMatrix();
-        scene.add(mh);
+        cityAdd(mh);
       });
     });
 
@@ -1968,7 +2587,7 @@
       sb.position.set(x, 0.035, z);
       sb.matrixAutoUpdate = false;
       sb.updateMatrix();
-      scene.add(sb);
+      cityAdd(sb);
     }
 
     function createZebra(x, z, horizontal) {
@@ -1992,10 +2611,18 @@
       }
       zGroup.matrixAutoUpdate = false;
       zGroup.updateMatrix();
-      scene.add(zGroup);
+      cityAdd(zGroup);
+      // halfAlong = stripe run along the kerb; halfAcross = walk distance over the road.
+      crosswalks.push({
+        x,
+        z,
+        horizontal,
+        halfAlong: numStripes * (stripeW + gap) * 0.5,
+        halfAcross: 2.15
+      });
     }
 
-    // City Blocks
+    // City Blocks — layout driven by the active map profile
     for (let i = 0; i < gridCoords.length - 1; i++) {
       for (let j = 0; j < gridCoords.length - 1; j++) {
         const x1 = gridCoords[i] + ROAD_W / 2;
@@ -2007,24 +2634,37 @@
         const centerX = (x1 + x2) / 2;
         const centerZ = (z1 + z2) / 2;
 
-        if (i === 2 && j === 2) {
+        if (isSpecialBlock(map, i, j, 'factory')) {
           createRecyclingPlant3D(centerX, centerZ, blockW, blockD);
           continue;
         }
 
-        if (i === 1 && j === 1) {
+        if (map.theme === 'suburb') {
+          createDachaBlock3D(
+            centerX, centerZ, blockW, blockD, i, j,
+            isSpecialBlock(map, i, j, 'pool')
+          );
+          continue;
+        }
+
+        if (map.theme === 'industrial') {
+          createIndustrialBlock3D(centerX, centerZ, blockW, blockD, i, j);
+          continue;
+        }
+
+        if (isSpecialBlock(map, i, j, 'parks')) {
           createCentralPark3D(centerX, centerZ, blockW, blockD);
           continue;
         }
 
-        createResidentialBlock3D(centerX, centerZ, blockW, blockD, i, j);
+        createResidentialBlock3D(centerX, centerZ, blockW, blockD, i, j, map.theme);
       }
     }
 
     // Fill the empty ring outside the outermost roads (blocks can only span the
     // inner grid), so the skyline reads as one continuous city instead of
     // fading into an empty green field.
-    createCityPerimeter(gridCoords, WORLD_SIZE);
+    createCityPerimeter(gridCoords, WORLD_SIZE, map.perimeter);
   }
 
   // ==========================================================================
@@ -2046,7 +2686,8 @@
   //   * every root is registered in `buildings3D`, so initLevel() clears the
   //     whole belt on a level restart.
   // ==========================================================================
-  function createCityPerimeter(gridCoords, WORLD_SIZE) {
+  function createCityPerimeter(gridCoords, WORLD_SIZE, perimeterTheme) {
+    const theme = perimeterTheme || 'industrial';
     const EDGE = Math.abs(gridCoords[gridCoords.length - 1]);        // 120
     const BELT_INNER = ROAD_EDGE;                                    // 128 = kerb line
     const BELT_OUTER = WORLD_SIZE / 2 - 25;                          // 185
@@ -2084,6 +2725,8 @@
     const matSteel = new THREE.MeshStandardMaterial({ color: 0x7f8c8d, roughness: 0.35, metalness: 0.5 });
     const matLampPole = new THREE.MeshStandardMaterial({ color: 0x1e272e, roughness: 0.5 });
     const matLampGlass = new THREE.MeshStandardMaterial({ color: 0xfffa65, emissive: 0xfffa65, emissiveIntensity: 0.85 });
+    registerNightGlow(matGlassWarm, 0.38, 1.15);
+    registerNightGlow(matLampGlass, 0.85, 2.4);
     const matRoofSlate = new THREE.MeshStandardMaterial({ color: 0x5d6d7e, roughness: 0.6 });
     const matConcrete = new THREE.MeshStandardMaterial({ color: 0x9aa0a6, roughness: 0.85 });
     const matHazard = new THREE.MeshStandardMaterial({ color: 0xe74c3c, roughness: 0.5 });
@@ -2365,75 +3008,141 @@
       }
     }
 
-    // ========================================================================
-    // 1. TERRACED ROWS — north (commercial), south (residential), east
-    // ========================================================================
     const frontKeys = ['light', 'cool', 'warm'];
-    for (let i = 0; i < 6; i++) {
-      const along = -EDGE + 22 + i * 39;
-      const roof = (i % 2) ? 'blue' : 'dark';
 
-      // North belt
-      townhouse(along, FRONT, 30, 18, frontKeys[i % 3], roof);
-      backdropBlock(along, BACK, 34, 18, 12 + (i % 3) * 4, i % 2 === 0);
+    if (theme === 'dacha' || theme === 'forest') {
+      // ======================================================================
+      // DACHA PERIMETER — cottage plots with fences, lawns, sparse orchard trees
+      // ======================================================================
+      for (let i = 0; i < 5; i++) {
+        const along = -EDGE + 28 + i * 42;
+        const roof = (i % 2) ? 'blue' : 'dark';
+        const wall = frontKeys[i % 3];
 
-      // South belt
-      townhouse(along, -FRONT, 30, 18, frontKeys[(i + 1) % 3], roof);
-      backdropBlock(along, -BACK, 34, 18, 11 + (i % 3) * 4, i % 2 === 1);
+        // Front row of compact dachas on each belt side.
+        townhouse(along - 8, FRONT, 16, 12, wall, roof);
+        townhouse(along + 10, FRONT + 14, 14, 12, frontKeys[(i + 1) % 3], roof);
+        townhouse(along - 8, -FRONT, 16, 12, frontKeys[(i + 2) % 3], roof);
+        townhouse(along + 10, -FRONT - 14, 14, 12, wall, roof);
+        townhouse(FRONT, along - 8, 12, 16, wall, roof);
+        townhouse(FRONT + 14, along + 10, 12, 14, frontKeys[(i + 1) % 3], roof);
 
-      // East belt
-      townhouse(FRONT, along, 18, 30, frontKeys[(i + 2) % 3], roof);
-      backdropBlock(BACK, along, 18, 34, 12 + (i % 3) * 3, i % 2 === 0);
-    }
+        // Plot fences between cottages (reads as allotments, not a forest wall).
+        fenceRun(along - 18, FRONT - 8, along + 18, FRONT - 8, 1.6);
+        fenceRun(along - 18, -FRONT + 8, along + 18, -FRONT + 8, 1.6);
+        fenceRun(FRONT - 8, along - 18, FRONT - 8, along + 18, 1.6);
 
-    // ========================================================================
-    // 2. WEST BELT — city forest / park continuation (no buildings)
-    // ========================================================================
-    for (let c = 0; c < 5; c++) {
-      for (let r = 0; r < 21; r++) {
-        const seed = c * 7 + r;
-        plantTree(
-          -BELT_INNER - 6 - c * 11,
-          -EDGE + 6 + r * 11.4,
-          0.8 + (seed % 4) * 0.12,
-          seed % 3 === 0,
-          seed
-        );
+        // A couple of orchard trees per plot — not a dense belt.
+        plantTree(along, FRONT + 22, 0.85, i % 2 === 0, i * 3);
+        plantTree(along + 6, -FRONT - 22, 0.9, i % 3 === 0, i * 5 + 1);
+        plantTree(FRONT + 22, along, 0.8, true, i * 7);
       }
-    }
 
-    // ========================================================================
-    // 3. NE CORNER — recycling plant logistics yard (x > 120, z > 120)
-    // ========================================================================
-    warehouse(CORNER - 14, CORNER - 13, 30, 20, true);
-    warehouse(CORNER + 15, CORNER + 13, 26, 20, false);
-    cistern(CORNER + 15, CORNER - 12, 5.4, 12);
-    cistern(CORNER - 12, CORNER + 16, 4.2, 9);
-    containerYard(CORNER + 4, CORNER + 1, 3, 2);
-    fenceRun(BELT_INNER + 4, CORNER - 27, BELT_OUTER - 2, CORNER - 27, 2.6);
-    fenceRun(BELT_INNER + 4, CORNER - 27, BELT_INNER + 4, BELT_OUTER - 2, 2.6);
-
-    // ========================================================================
-    // 4. NW / SW / SE CORNERS — forest + terraces completing the ring
-    // ========================================================================
-    for (let c = 0; c < 3; c++) {
-      for (let r = 0; r < 3; r++) {
-        const seed = c * 3 + r + 5;
-        plantTree(
-          -CORNER - 14 + c * 14,
-          CORNER - 6 + r * 14,
-          0.85 + (seed % 3) * 0.1,
-          seed % 2 === 0,
-          seed
-        );
+      // West belt: more dacha rows instead of a forest mass.
+      for (let i = 0; i < 4; i++) {
+        const along = -EDGE + 35 + i * 50;
+        townhouse(-FRONT, along, 12, 16, frontKeys[i % 3], (i % 2) ? 'blue' : 'dark');
+        townhouse(-FRONT - 16, along + 12, 12, 14, frontKeys[(i + 1) % 3], 'dark');
+        fenceRun(-FRONT + 8, along - 18, -FRONT + 8, along + 18, 1.6);
+        plantTree(-FRONT - 24, along, 0.85, i % 2 === 0, i + 20);
       }
-    }
 
-    townhouse(-CORNER - 10, -CORNER, 30, 20, 'warm', 'dark');
-    townhouse(-CORNER + 16, -CORNER + 14, 22, 22, 'cool', 'blue');
-    townhouse(CORNER + 10, -CORNER, 30, 20, 'light', 'blue');
-    townhouse(CORNER - 16, -CORNER - 14, 22, 22, 'cool', 'dark');
-    fenceRun(-BELT_OUTER + 2, -CORNER - 28, -BELT_INNER - 4, -CORNER - 28, 2.2);
+      townhouse(-CORNER, -CORNER, 20, 16, 'warm', 'dark');
+      townhouse(CORNER, -CORNER, 20, 16, 'cool', 'blue');
+      townhouse(CORNER, CORNER, 18, 18, 'light', 'dark');
+      townhouse(-CORNER, CORNER, 18, 16, 'cool', 'dark');
+      fenceRun(-CORNER - 14, -CORNER - 12, -CORNER + 14, -CORNER - 12, 1.6);
+      fenceRun(CORNER - 14, CORNER + 12, CORNER + 14, CORNER + 12, 1.6);
+    } else if (theme === 'yards') {
+      // ======================================================================
+      // YARDS PERIMETER (промзона) — warehouses, cisterns, container stacks
+      // ======================================================================
+      const yardCount = Math.max(6, Math.round((EDGE * 2) / 48));
+      for (let i = 0; i < yardCount; i++) {
+        const along = -EDGE + 30 + i * ((EDGE * 2 - 40) / Math.max(1, yardCount - 1));
+        warehouse(along, FRONT + 4, 36, 22, i % 2 === 0);
+        warehouse(along + 8, -FRONT - 4, 32, 20, i % 3 !== 0);
+        warehouse(FRONT + 4, along, 22, 36, i % 2 === 1);
+        warehouse(-FRONT - 4, along - 6, 20, 32, i % 2 === 0);
+        if (i % 2 === 0) {
+          cistern(along + 18, FRONT + 20, 4.8, 11);
+          containerYard(along - 10, -FRONT - 18, 3, 2);
+        } else {
+          cistern(-FRONT - 18, along + 14, 4.2, 9);
+          containerYard(FRONT + 18, along - 8, 2, 3);
+        }
+        fenceRun(along - 22, FRONT - 6, along + 22, FRONT - 6, 2.4);
+        fenceRun(FRONT - 6, along - 22, FRONT - 6, along + 22, 2.4);
+      }
+
+      warehouse(CORNER - 10, CORNER - 8, 40, 28, true);
+      warehouse(CORNER + 18, CORNER + 12, 34, 26, false);
+      warehouse(-CORNER + 8, -CORNER - 10, 36, 28, true);
+      warehouse(-CORNER - 16, CORNER + 6, 30, 24, false);
+      cistern(CORNER + 6, -CORNER + 10, 6.0, 13);
+      cistern(-CORNER - 8, CORNER - 14, 5.2, 11);
+      containerYard(CORNER - 4, -CORNER - 4, 4, 3);
+      containerYard(-CORNER + 4, CORNER + 4, 3, 3);
+      fenceRun(BELT_INNER + 4, CORNER - 32, BELT_OUTER - 2, CORNER - 32, 2.8);
+      fenceRun(-BELT_OUTER + 2, -CORNER - 32, -BELT_INNER - 4, -CORNER - 32, 2.8);
+    } else {
+      // ======================================================================
+      // INDUSTRIAL PERIMETER (downtown) — terraces, warehouses, forest west
+      // ======================================================================
+      for (let i = 0; i < 6; i++) {
+        const along = -EDGE + 22 + i * 39;
+        const roof = (i % 2) ? 'blue' : 'dark';
+
+        townhouse(along, FRONT, 30, 18, frontKeys[i % 3], roof);
+        backdropBlock(along, BACK, 34, 18, 12 + (i % 3) * 4, i % 2 === 0);
+
+        townhouse(along, -FRONT, 30, 18, frontKeys[(i + 1) % 3], roof);
+        backdropBlock(along, -BACK, 34, 18, 11 + (i % 3) * 4, i % 2 === 1);
+
+        townhouse(FRONT, along, 18, 30, frontKeys[(i + 2) % 3], roof);
+        backdropBlock(BACK, along, 18, 34, 12 + (i % 3) * 3, i % 2 === 0);
+      }
+
+      for (let c = 0; c < 5; c++) {
+        for (let r = 0; r < 21; r++) {
+          const seed = c * 7 + r;
+          plantTree(
+            -BELT_INNER - 6 - c * 11,
+            -EDGE + 6 + r * 11.4,
+            0.8 + (seed % 4) * 0.12,
+            seed % 3 === 0,
+            seed
+          );
+        }
+      }
+
+      warehouse(CORNER - 14, CORNER - 13, 30, 20, true);
+      warehouse(CORNER + 15, CORNER + 13, 26, 20, false);
+      cistern(CORNER + 15, CORNER - 12, 5.4, 12);
+      cistern(CORNER - 12, CORNER + 16, 4.2, 9);
+      containerYard(CORNER + 4, CORNER + 1, 3, 2);
+      fenceRun(BELT_INNER + 4, CORNER - 27, BELT_OUTER - 2, CORNER - 27, 2.6);
+      fenceRun(BELT_INNER + 4, CORNER - 27, BELT_INNER + 4, BELT_OUTER - 2, 2.6);
+
+      for (let c = 0; c < 3; c++) {
+        for (let r = 0; r < 3; r++) {
+          const seed = c * 3 + r + 5;
+          plantTree(
+            -CORNER - 14 + c * 14,
+            CORNER - 6 + r * 14,
+            0.85 + (seed % 3) * 0.1,
+            seed % 2 === 0,
+            seed
+          );
+        }
+      }
+
+      townhouse(-CORNER - 10, -CORNER, 30, 20, 'warm', 'dark');
+      townhouse(-CORNER + 16, -CORNER + 14, 22, 22, 'cool', 'blue');
+      townhouse(CORNER + 10, -CORNER, 30, 20, 'light', 'blue');
+      townhouse(CORNER - 16, -CORNER - 14, 22, 22, 'cool', 'dark');
+      fenceRun(-BELT_OUTER + 2, -CORNER - 28, -BELT_INNER - 4, -CORNER - 28, 2.2);
+    }
 
     // ========================================================================
     // 5. INNER KERB — sidewalk base, street lamps and avenue trees
@@ -2490,13 +3199,559 @@
       // r128 never refreshes instance bounds, so skip the (stale) frustum test.
       // A single instanced batch is one draw call regardless.
       inst.frustumCulled = false;
-      scene.add(inst);
+      cityAdd(inst);
       buildings3D.push(inst);
     });
   }
 
+  // --- Industrial block: concrete yard, warehouses, containers, cisterns ---
+  function createIndustrialBlock3D(cx, cz, w, d, bi, bj) {
+    const pad = new THREE.Mesh(
+      new THREE.BoxGeometry(w, 0.28, d),
+      new THREE.MeshStandardMaterial({ color: 0x7a828c, roughness: 0.92 })
+    );
+    pad.position.set(cx, 0.14, cz);
+    pad.receiveShadow = true;
+    pad.matrixAutoUpdate = false;
+    pad.updateMatrix();
+    cityAdd(pad);
+
+    // Painted yard lanes (visual only — truck stays on outer roads).
+    const laneMat = new THREE.MeshStandardMaterial({ color: 0xf1c40f, roughness: 0.55 });
+    const laneNS = new THREE.Mesh(new THREE.PlaneGeometry(1.1, d * 0.72), laneMat);
+    laneNS.rotateX(-Math.PI / 2);
+    laneNS.position.set(cx, 0.29, cz);
+    laneNS.matrixAutoUpdate = false;
+    laneNS.updateMatrix();
+    cityAdd(laneNS);
+    const laneEW = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.72, 1.1), laneMat);
+    laneEW.rotateX(-Math.PI / 2);
+    laneEW.position.set(cx, 0.291, cz);
+    laneEW.matrixAutoUpdate = false;
+    laneEW.updateMatrix();
+    cityAdd(laneEW);
+
+    const matSteel = new THREE.MeshStandardMaterial({ color: 0x3d4451, roughness: 0.5, metalness: 0.18 });
+    const matBlue = new THREE.MeshStandardMaterial({ color: 0x1e3a5f, roughness: 0.55 });
+    const matRoof = new THREE.MeshStandardMaterial({ color: 0x2f3640, roughness: 0.6 });
+    const matDoor = new THREE.MeshStandardMaterial({ color: 0x57606f, roughness: 0.65 });
+    const matTank = new THREE.MeshStandardMaterial({ color: 0x7f8c8d, roughness: 0.35, metalness: 0.45 });
+    const matFence = new THREE.MeshStandardMaterial({ color: 0x4b5563, roughness: 0.7 });
+    const containerMats = [0xe74c3c, 0x2980b9, 0xf1c40f, 0x27ae60, 0xe67e22].map(
+      (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.5 })
+    );
+
+    const seed = bi * 17 + bj * 31;
+    const halfW = w * 0.5;
+    const halfD = d * 0.5;
+    const margin = 6;
+
+    function addBuildingCollider(x, z, hw, hd) {
+      colliders.push({
+        minX: x - hw - 1.1,
+        maxX: x + hw + 1.1,
+        minZ: z - hd - 1.1,
+        maxZ: z + hd + 1.1
+      });
+    }
+
+    function warehouseAt(x, z, ww, dd, tall, steel) {
+      const H = tall ? 14 : 10;
+      const group = new THREE.Group();
+      group.position.set(x, 0, z);
+
+      const shell = new THREE.Mesh(
+        new THREE.BoxGeometry(ww, H, dd),
+        steel ? matSteel : matBlue
+      );
+      shell.position.y = H / 2;
+      shell.castShadow = true;
+      shell.receiveShadow = true;
+      group.add(shell);
+
+      const roof = new THREE.Mesh(
+        new THREE.BoxGeometry(ww + 1.2, 0.7, dd + 1.2),
+        matRoof
+      );
+      roof.position.y = H + 0.35;
+      roof.castShadow = true;
+      group.add(roof);
+
+      // Loading bay doors facing the nearer outer road.
+      const faceZ = (z < cz) ? -1 : 1;
+      for (let i = -1; i <= 1; i++) {
+        const door = new THREE.Mesh(new THREE.BoxGeometry(4.2, 5.2, 0.25), matDoor);
+        door.position.set(i * ww * 0.28, 2.7, faceZ * (dd / 2 + 0.13));
+        group.add(door);
+      }
+
+      group.matrixAutoUpdate = false;
+      group.updateMatrix();
+      cityAdd(group);
+      buildings3D.push(group);
+      addBuildingCollider(x, z, ww / 2, dd / 2);
+    }
+
+    // Two large hangars + one office shed, layout varies by block index.
+    const layout = (seed % 3);
+    if (layout === 0) {
+      warehouseAt(cx - halfW * 0.32, cz - halfD * 0.28, w * 0.38, d * 0.32, true, true);
+      warehouseAt(cx + halfW * 0.30, cz + halfD * 0.26, w * 0.36, d * 0.30, false, false);
+    } else if (layout === 1) {
+      warehouseAt(cx - halfW * 0.28, cz + halfD * 0.30, w * 0.34, d * 0.36, true, false);
+      warehouseAt(cx + halfW * 0.32, cz - halfD * 0.30, w * 0.40, d * 0.28, false, true);
+    } else {
+      warehouseAt(cx - halfW * 0.34, cz, w * 0.30, d * 0.48, true, true);
+      warehouseAt(cx + halfW * 0.28, cz - halfD * 0.22, w * 0.34, d * 0.28, false, false);
+    }
+
+    // Compact office / security booth near a corner.
+    const boothX = cx + halfW - margin - 6;
+    const boothZ = cz - halfD + margin + 5;
+    const booth = new THREE.Mesh(
+      new THREE.BoxGeometry(10, 5.5, 8),
+      new THREE.MeshStandardMaterial({ color: 0xdfe4ea, roughness: 0.45 })
+    );
+    booth.position.set(boothX, 2.75, boothZ);
+    booth.castShadow = true;
+    booth.matrixAutoUpdate = false;
+    booth.updateMatrix();
+    cityAdd(booth);
+    buildings3D.push(booth);
+    addBuildingCollider(boothX, boothZ, 5, 4);
+
+    // Cistern on alternate blocks.
+    if (seed % 2 === 0) {
+      const tx = cx + halfW * 0.05;
+      const tz = cz - halfD * 0.42;
+      const tankH = 11;
+      const tank = new THREE.Mesh(new THREE.CylinderGeometry(4.2, 4.2, tankH, 14), matTank);
+      tank.position.set(tx, tankH / 2, tz);
+      tank.castShadow = true;
+      tank.matrixAutoUpdate = false;
+      tank.updateMatrix();
+      cityAdd(tank);
+      buildings3D.push(tank);
+      const dome = new THREE.Mesh(
+        new THREE.SphereGeometry(4.2, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2),
+        matTank
+      );
+      dome.position.set(tx, tankH, tz);
+      dome.matrixAutoUpdate = false;
+      dome.updateMatrix();
+      cityAdd(dome);
+      addBuildingCollider(tx, tz, 4.5, 4.5);
+    }
+
+    // Container stacks (instanced per colour for draw-call budget).
+    const gCont = new THREE.BoxGeometry(6.2, 2.5, 2.6);
+    const stacks = [
+      { x: cx - halfW + margin + 8, z: cz + halfD - margin - 8, cols: 3, rows: 2 },
+      { x: cx + halfW - margin - 10, z: cz + halfD * 0.1, cols: 2, rows: 3 }
+    ];
+    stacks.forEach((stack, si) => {
+      for (let c = 0; c < stack.cols; c++) {
+        for (let r = 0; r < stack.rows; r++) {
+          for (let layer = 0; layer < 2; layer++) {
+            const box = new THREE.Mesh(
+              gCont,
+              containerMats[(si + c + r + layer) % containerMats.length]
+            );
+            box.position.set(
+              stack.x + c * 6.8,
+              1.25 + layer * 2.55,
+              stack.z + r * 3.2
+            );
+            box.castShadow = true;
+            box.matrixAutoUpdate = false;
+            box.updateMatrix();
+            cityAdd(box);
+            buildings3D.push(box);
+          }
+        }
+      }
+      addBuildingCollider(
+        stack.x + (stack.cols - 1) * 3.4,
+        stack.z + (stack.rows - 1) * 1.6,
+        stack.cols * 3.5,
+        stack.rows * 1.8
+      );
+    });
+
+    // Solid yard fence — inset from the kerb so street bins sit on a clear apron
+    // (must stay beyond buildBinSpawnPool KERB ≈ ROAD_W/2 + 2.4). AABB blocks
+    // the truck from cutting through warehouses.
+    const fenceH = 2.4;
+    const fenceY = fenceH / 2;
+    const inset = 5.8;
+    const runW = Math.max(8, w - 2 * inset);
+    const runD = Math.max(8, d - 2 * inset);
+    const fenceRuns = [
+      { x: cx, z: cz - halfD + inset, sx: runW, sz: 0.35 },
+      { x: cx, z: cz + halfD - inset, sx: runW, sz: 0.35 },
+      { x: cx - halfW + inset, z: cz, sx: 0.35, sz: runD },
+      { x: cx + halfW - inset, z: cz, sx: 0.35, sz: runD }
+    ];
+    fenceRuns.forEach((f) => {
+      const wall = new THREE.Mesh(new THREE.BoxGeometry(f.sx, fenceH, f.sz), matFence);
+      wall.position.set(f.x, fenceY, f.z);
+      wall.castShadow = true;
+      wall.matrixAutoUpdate = false;
+      wall.updateMatrix();
+      cityAdd(wall);
+      // Thin visual wall, slightly thicker collider so the truck cannot slip through.
+      addBuildingCollider(f.x, f.z, Math.max(f.sx / 2, 0.45), Math.max(f.sz / 2, 0.45));
+    });
+
+    // Corner floodlights (inside the fence line) — shared night-boost glass.
+    const lampMat = new THREE.MeshStandardMaterial({ color: 0x1e272e, roughness: 0.5 });
+    [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sz]) => {
+      const lx = cx + sx * (halfW - inset - 1.2);
+      const lz = cz + sz * (halfD - inset - 1.2);
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.2, 7.5, 8), lampMat);
+      pole.position.set(lx, 3.75, lz);
+      pole.castShadow = true;
+      pole.matrixAutoUpdate = false;
+      pole.updateMatrix();
+      cityAdd(pole);
+      const glass = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.22, 0.7, 6), matStreetLampGlass);
+      glass.position.set(lx, 7.6, lz);
+      glass.matrixAutoUpdate = false;
+      glass.updateMatrix();
+      cityAdd(glass);
+    });
+  }
+
+  // --- Dacha settlement block: 2×2 fenced plots + narrow alley crossroads ---
+  function createDachaBlock3D(cx, cz, w, d, bi, bj, withPool) {
+    const alleyW = (getActiveMap().alleyWidth || DACHA_ALLEY_W);
+    const matAlley = new THREE.MeshStandardMaterial({ color: 0x2c3036, roughness: 0.7 });
+    const matDash = new THREE.MeshStandardMaterial({ color: 0xf5f6fa, roughness: 0.45 });
+
+    // Narrow asphalt alleys cut the block into four plots and open onto the
+    // wide outer roads (full block span — no raised slab blocking the mouths).
+    const alleyNS = new THREE.Mesh(new THREE.PlaneGeometry(alleyW, d), matAlley);
+    alleyNS.rotateX(-Math.PI / 2);
+    alleyNS.position.set(cx, 0.028, cz);
+    alleyNS.receiveShadow = true;
+    alleyNS.matrixAutoUpdate = false;
+    alleyNS.updateMatrix();
+    cityAdd(alleyNS);
+
+    const alleyEW = new THREE.Mesh(new THREE.PlaneGeometry(w, alleyW), matAlley);
+    alleyEW.rotateX(-Math.PI / 2);
+    alleyEW.position.set(cx, 0.03, cz);
+    alleyEW.receiveShadow = true;
+    alleyEW.matrixAutoUpdate = false;
+    alleyEW.updateMatrix();
+    cityAdd(alleyEW);
+
+    // Dashed centre lines on the alleys
+    for (let t = -d / 2 + 4; t < d / 2 - 4; t += 5.5) {
+      const dash = new THREE.Mesh(new THREE.PlaneGeometry(0.28, 2.4), matDash);
+      dash.rotateX(-Math.PI / 2);
+      dash.position.set(cx, 0.035, cz + t);
+      dash.matrixAutoUpdate = false;
+      dash.updateMatrix();
+      cityAdd(dash);
+    }
+    for (let t = -w / 2 + 4; t < w / 2 - 4; t += 5.5) {
+      const dash = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 0.28), matDash);
+      dash.rotateX(-Math.PI / 2);
+      dash.position.set(cx + t, 0.036, cz);
+      dash.matrixAutoUpdate = false;
+      dash.updateMatrix();
+      cityAdd(dash);
+    }
+
+    const gap = 0.7; // air gap between alley kerb and plot fence
+    const plotW = (w - alleyW) / 2 - gap;
+    const plotD = (d - alleyW) / 2 - gap;
+    const cottagePalettes = [
+      { wall: 0xfff8e7, trim: 0xc0392b, door: 0x8e44ad, roof: 0xe74c3c },
+      { wall: 0xf5e6c8, trim: 0x2980b9, door: 0x27ae60, roof: 0x1e3a5f },
+      { wall: 0xeeeeee, trim: 0xd35400, door: 0xe67e22, roof: 0x7f8c8d },
+      { wall: 0xe8f5e9, trim: 0x2c3e50, door: 0x0984e3, roof: 0x27ae60 }
+    ];
+
+    // Four corner plots (sx/sz = ±1 pick the quadrant).
+    const quadrants = [
+      { sx: -1, sz: -1 },
+      { sx: 1, sz: -1 },
+      { sx: -1, sz: 1 },
+      { sx: 1, sz: 1 }
+    ];
+
+    quadrants.forEach((q, qi) => {
+      const plotCx = cx + q.sx * (alleyW / 2 + gap + plotW / 2);
+      const plotCz = cz + q.sz * (alleyW / 2 + gap + plotD / 2);
+      const pal = cottagePalettes[(bi * 3 + bj * 2 + qi) % cottagePalettes.length];
+      const isPoolPlot = withPool && qi === 1;
+
+      // Pull street-facing edges inward so kerbside bins sit outside the fence.
+      const STREET_INSET = 2.8;
+      const blockMinX = cx - w / 2;
+      const blockMaxX = cx + w / 2;
+      const blockMinZ = cz - d / 2;
+      const blockMaxZ = cz + d / 2;
+      let fx0 = plotCx - plotW / 2;
+      let fx1 = plotCx + plotW / 2;
+      let fz0 = plotCz - plotD / 2;
+      let fz1 = plotCz + plotD / 2;
+      if (Math.abs(fx0 - blockMinX) < 0.6) fx0 += STREET_INSET;
+      if (Math.abs(fx1 - blockMaxX) < 0.6) fx1 -= STREET_INSET;
+      if (Math.abs(fz0 - blockMinZ) < 0.6) fz0 += STREET_INSET;
+      if (Math.abs(fz1 - blockMaxZ) < 0.6) fz1 -= STREET_INSET;
+
+      const lawnW = Math.max(4, fx1 - fx0);
+      const lawnD = Math.max(4, fz1 - fz0);
+      const lawnCx = (fx0 + fx1) / 2;
+      const lawnCz = (fz0 + fz1) / 2;
+
+      // Plot lawn pad (matches inset fence footprint on street sides).
+      const lawn = new THREE.Mesh(
+        new THREE.BoxGeometry(lawnW, 0.42, lawnD),
+        new THREE.MeshStandardMaterial({ color: 0x3cb371, roughness: 0.85 })
+      );
+      lawn.position.set(lawnCx, 0.22, lawnCz);
+      lawn.receiveShadow = true;
+      cityAdd(lawn);
+
+      // Fences are decorative only — no plot AABB. The truck can cross into the
+      // yard; solid hits remain on cottages / sheds / pool deck only.
+
+      // Picket fence around the plot (visual only).
+      createPicketFenceLine(fx0, fz0, fx1, fz0);
+      createPicketFenceLine(fx0, fz1, fx1, fz1);
+      createPicketFenceLine(fx0, fz0, fx0, fz1);
+      createPicketFenceLine(fx1, fz0, fx1, fz1);
+
+      // Cottage on every plot — the pool yard used to replace it and read as a
+      // bare concrete "foundation" from the road.
+      createDachaCottage(
+        plotCx - q.sx * plotW * 0.12,
+        plotCz - q.sz * plotD * (isPoolPlot ? 0.22 : 0.06),
+        pal,
+        q.sx > 0 ? 1 : 0,
+        q.sz > 0 ? 1 : 0
+      );
+
+      if (isPoolPlot) {
+        createDachaPoolYard(
+          plotCx + q.sx * plotW * 0.18,
+          plotCz + q.sz * plotD * 0.22,
+          Math.min(plotW * 0.42, 14),
+          Math.min(plotD * 0.38, 11)
+        );
+      } else if (qi % 2 === 0) {
+        const shedGroup = new THREE.Group();
+        shedGroup.position.set(plotCx + q.sx * plotW * 0.28, 0, plotCz + q.sz * plotD * 0.22);
+        const shedBody = new THREE.Mesh(
+          new THREE.BoxGeometry(2.8, 2.0, 2.4),
+          new THREE.MeshStandardMaterial({ color: 0xb8956c, roughness: 0.7 })
+        );
+        shedBody.position.y = 1.2;
+        shedBody.castShadow = true;
+        const shedRoof = new THREE.Mesh(
+          new THREE.ConeGeometry(2.1, 1.1, 4),
+          new THREE.MeshStandardMaterial({ color: 0x8d6e63, roughness: 0.6 })
+        );
+        shedRoof.position.y = 2.7;
+        shedRoof.rotation.y = Math.PI / 4;
+        shedRoof.castShadow = true;
+        shedGroup.add(shedBody, shedRoof);
+        cityAdd(shedGroup);
+        buildings3D.push(shedGroup);
+      }
+
+      const bed = new THREE.Mesh(
+        new THREE.BoxGeometry(2.8, 0.28, 1.2),
+        new THREE.MeshStandardMaterial({ color: 0x6d4c41, roughness: 0.9 })
+      );
+      bed.position.set(plotCx + q.sx * plotW * 0.18, 0.5, plotCz - q.sz * plotD * 0.28);
+      const blooms = new THREE.Mesh(
+        new THREE.BoxGeometry(2.5, 0.18, 0.95),
+        new THREE.MeshStandardMaterial({
+          color: [0xe84393, 0xf1c40f, 0xe74c3c, 0x9b59b6][qi % 4],
+          roughness: 0.55
+        })
+      );
+      blooms.position.set(bed.position.x, 0.68, bed.position.z);
+      cityAdd(bed, blooms);
+
+      if (qi % 2 === 0) {
+        createDetailedTree3D(plotCx + q.sx * plotW * 0.25, plotCz - q.sz * plotD * 0.25);
+      }
+
+      if (qi === 0 || qi === 2) {
+        createMinifigure3D(
+          plotCx - q.sx * plotW * 0.2,
+          plotCz + q.sz * plotD * 0.22,
+          qi * 0.8,
+          pal.door,
+          0x2c3e50,
+          qi === 0
+        );
+      }
+    });
+
+    // Street lamps at the alley / outer-road mouths
+    const EDGE_IN = 2.2;
+    createStreetLamp3D(cx - alleyW * 0.35, cz - d / 2 + EDGE_IN);
+    createStreetLamp3D(cx + alleyW * 0.35, cz + d / 2 - EDGE_IN);
+    createStreetLamp3D(cx - w / 2 + EDGE_IN, cz - alleyW * 0.35);
+    createStreetLamp3D(cx + w / 2 - EDGE_IN, cz + alleyW * 0.35);
+    createFireHydrant3D(cx + alleyW * 0.55, cz - alleyW * 0.55);
+  }
+
+  function createDachaCottage(x, z, pal, faceXSign, faceZSign) {
+    const faceX = faceXSign === 0 ? -1 : 1;
+    const faceZ = faceZSign === 0 ? -1 : 1;
+    const group = new THREE.Group();
+    group.position.set(x, 0.4, z);
+
+    const wallW = 8.2;
+    const wallD = 6.4;
+    const wallH = 2.8;
+
+    const plinth = new THREE.Mesh(
+      new THREE.BoxGeometry(wallW + 0.4, 0.4, wallD + 0.4),
+      new THREE.MeshStandardMaterial({ color: 0x8d6e63, roughness: 0.85 })
+    );
+    plinth.position.y = 0.2;
+    group.add(plinth);
+
+    const walls = new THREE.Mesh(
+      new THREE.BoxGeometry(wallW, wallH, wallD),
+      new THREE.MeshStandardMaterial({ color: pal.wall, roughness: 0.45 })
+    );
+    walls.position.y = wallH / 2;
+    walls.castShadow = true;
+    walls.receiveShadow = true;
+    group.add(walls);
+
+    // Chunky pyramid roof — thin slanted plates disappeared at distance and
+    // made cottages read as bare "foundation" boxes from the road.
+    const roofMat = new THREE.MeshStandardMaterial({ color: pal.roof, roughness: 0.55 });
+    const eaves = new THREE.Mesh(
+      new THREE.BoxGeometry(wallW + 1.4, 0.35, wallD + 1.4),
+      roofMat
+    );
+    eaves.position.y = wallH + 0.2;
+    eaves.castShadow = true;
+    const peak = new THREE.Mesh(
+      new THREE.ConeGeometry(Math.max(wallW, wallD) * 0.62, 1.8, 4),
+      roofMat
+    );
+    peak.position.y = wallH + 1.15;
+    peak.rotation.y = Math.PI / 4;
+    peak.castShadow = true;
+    group.add(eaves, peak);
+
+    const winMat = new THREE.MeshStandardMaterial({
+      color: 0xfff4cc, emissive: 0xfff4cc, emissiveIntensity: 0.25, roughness: 0.15
+    });
+    const win = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.1, 0.1), winMat);
+    win.position.set(-wallW * 0.18 * faceX, 1.45, (wallD / 2 + 0.06) * faceZ);
+    const door = new THREE.Mesh(
+      new THREE.BoxGeometry(1.05, 1.9, 0.12),
+      new THREE.MeshStandardMaterial({ color: pal.door, roughness: 0.5 })
+    );
+    door.position.set(wallW * 0.22 * faceX, 0.95, (wallD / 2 + 0.06) * faceZ);
+    const porch = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.18, 1.1), matLegoGrey);
+    porch.position.set(door.position.x, 0.1, door.position.z + 0.5 * faceZ);
+    group.add(win, door, porch);
+
+    // Small porch canopy
+    const canopy = new THREE.Mesh(
+      new THREE.BoxGeometry(2.4, 0.12, 1.3),
+      new THREE.MeshStandardMaterial({ color: pal.trim, roughness: 0.4 })
+    );
+    canopy.position.set(door.position.x, 2.15, door.position.z + 0.45 * faceZ);
+    group.add(canopy);
+
+    cityAdd(group);
+    buildings3D.push(group);
+    colliders.push({
+      minX: x - wallW / 2 - 0.9,
+      maxX: x + wallW / 2 + 0.9,
+      minZ: z - wallD / 2 - 0.9,
+      maxZ: z + wallD / 2 + 0.9
+    });
+  }
+
+  function createDachaPoolYard(cx, cz, pw, pd) {
+    // Compact patio — bright water must dominate so it never reads as a bare slab.
+    const deck = new THREE.Mesh(
+      new THREE.BoxGeometry(pw, 0.2, pd),
+      new THREE.MeshStandardMaterial({ color: 0xeceff1, roughness: 0.65 })
+    );
+    deck.position.set(cx, 0.46, cz);
+    deck.receiveShadow = true;
+    cityAdd(deck);
+
+    const poolW = pw * 0.78;
+    const poolD = pd * 0.7;
+    const rim = new THREE.Mesh(
+      new THREE.BoxGeometry(poolW + 0.7, 0.35, poolD + 0.7),
+      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.35 })
+    );
+    rim.position.set(cx, 0.55, cz);
+    cityAdd(rim);
+
+    const water = new THREE.Mesh(
+      new THREE.BoxGeometry(poolW, 0.28, poolD),
+      new THREE.MeshStandardMaterial({
+        color: 0x00b4d8,
+        roughness: 0.05,
+        metalness: 0.45,
+        emissive: 0x0077b6,
+        emissiveIntensity: 0.35
+      })
+    );
+    water.position.set(cx, 0.68, cz);
+    cityAdd(water);
+
+    // Ladder
+    [-0.55, 0.55].forEach((s) => {
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 1.5, 8), matChrome);
+      post.position.set(cx + poolW * 0.42, 1.15, cz + s);
+      cityAdd(post);
+    });
+    const rung = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.06, 1.2), matChrome);
+    rung.position.set(cx + poolW * 0.42, 0.95, cz);
+    cityAdd(rung);
+
+    // Loungers + umbrella
+    for (let i = 0; i < 2; i++) {
+      const chair = new THREE.Mesh(
+        new THREE.BoxGeometry(1.6, 0.16, 0.65),
+        new THREE.MeshStandardMaterial({ color: i === 0 ? 0xf39c12 : 0xe74c3c, roughness: 0.5 })
+      );
+      chair.position.set(cx - poolW * 0.42, 0.65, cz + (i === 0 ? -1.2 : 1.2));
+      cityAdd(chair);
+    }
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 2.4, 8), matLegoWhite);
+    pole.position.set(cx - poolW * 0.15, 1.6, cz - pd * 0.42);
+    const canopy = new THREE.Mesh(
+      new THREE.ConeGeometry(1.6, 0.55, 8),
+      new THREE.MeshStandardMaterial({ color: 0xf1c40f, roughness: 0.5 })
+    );
+    canopy.position.set(pole.position.x, 2.7, pole.position.z);
+    cityAdd(pole, canopy);
+
+    createMinifigure3D(cx - poolW * 0.1, cz + poolD * 0.4, Math.PI, 0x00cec9, 0x2c3e50, true);
+
+    colliders.push({
+      minX: cx - pw / 2 - 0.4,
+      maxX: cx + pw / 2 + 0.4,
+      minZ: cz - pd / 2 - 0.4,
+      maxZ: cz + pd / 2 + 0.4
+    });
+  }
+
   // --- Detailed 3D Residential Block & Modular LEGO Villas ---
-  function createResidentialBlock3D(cx, cz, w, d, bi, bj) {
+  function createResidentialBlock3D(cx, cz, w, d, bi, bj, theme) {
     // Raised Granite Sidewalk Base
     const sidewalk = new THREE.Mesh(
       new THREE.BoxGeometry(w, 0.38, d),
@@ -2504,7 +3759,7 @@
     );
     sidewalk.position.set(cx, 0.19, cz);
     sidewalk.receiveShadow = true;
-    scene.add(sidewalk);
+    cityAdd(sidewalk);
 
     // Inner Garden Lawn
     const lawnW = w - SIDEWALK_W * 2;
@@ -2515,7 +3770,7 @@
     );
     lawn.position.set(cx, 0.22, cz);
     lawn.receiveShadow = true;
-    scene.add(lawn);
+    cityAdd(lawn);
 
     // White Picket Fences along Sidewalk
     const fenceOffsetW = lawnW / 2;
@@ -2700,7 +3955,7 @@
       mbGroup.add(mbPost, mbBox, mbFlag);
       houseGroup.add(mbGroup);
 
-      scene.add(houseGroup);
+      cityAdd(houseGroup);
       buildings3D.push(houseGroup);
 
       colliders.push({
@@ -2739,8 +3994,7 @@
     createMinifigure3D(cx - w / 2 + EDGE_IN, cz - 6.0, 0, 0xe74c3c, 0x2c3e50, false);
     createMinifigure3D(cx + w / 2 - EDGE_IN, cz + 6.0, Math.PI, 0x0984e3, 0x1e272e, true);
     createMinifigure3D(cx + 4.0, cz - d / 2 + EDGE_IN, Math.PI / 2, 0x2ecc71, 0x2c3e50, false);
-    // Containers are no longer hard-wired to the block corners — they are
-    // spawned procedurally from POTENTIAL_BIN_SPAWNS in initLevel().
+    // Containers are spawned procedurally from buildBinSpawnPool() in initLevel().
   }
 
   // --- Detailed 3D Fire Hydrant ---
@@ -2759,7 +4013,7 @@
     nozzleR.rotateZ(Math.PI / 2);
     nozzleR.position.set(0.25, 0.5, 0);
     fhGroup.add(body, cap, nozzleL, nozzleR);
-    scene.add(fhGroup);
+    cityAdd(fhGroup);
   }
 
   // --- Detailed 3D Road Sign (Speed Limit / Pedestrian) ---
@@ -2787,7 +4041,7 @@
       redRim.position.set(0, 3.0, 0.03);
       signGroup.add(redRim);
     }
-    scene.add(signGroup);
+    cityAdd(signGroup);
   }
 
   // --- Detailed 3D Storm Drain Grate along curb gutter ---
@@ -2798,7 +4052,7 @@
     );
     grate.rotateX(-Math.PI / 2);
     grate.position.set(x, 0.03, z);
-    scene.add(grate);
+    cityAdd(grate);
   }
 
   function spawn3DBin(x, z, angle, categoryType) {
@@ -2856,16 +4110,65 @@
     return perpSign > 0 ? -Math.PI / 2 : Math.PI / 2;
   }
 
-  const POTENTIAL_BIN_SPAWNS = (() => {
-    const KERB = 9.5;        // distance from road centre to kerb — on the sidewalk
-    // Bins must stay well inside the paved grid: the roads now end at ±ROAD_EDGE
-    // (±128) with dead-end barriers and perimeter fences beyond, so anything
-    // past ±100 is dropped to keep the arm reachable from a lane.
-    const SPAWN_LIMIT = 100;
+  function buildBinSpawnPool(map) {
+    const coords = map.gridCoords;
+    const roadEdge = map.roadEdge;
+    const SPAWN_LIMIT = map.spawnLimit;
+    // Place bins past the carriageway onto the sidewalk / industrial apron.
+    // Industrial uses a deeper apron so bins clear the yard fence (inset 5.8).
+    const KERB = ROAD_W / 2 + (map.theme === 'industrial' ? 2.4 : 1.6);
     const LANE = 3.6;        // lane centre offset from the road centre line
-    const diagonal = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
+    const alleyW = (map.theme === 'suburb') ? (map.alleyWidth || DACHA_ALLEY_W) : 0;
+    // Half-width of the forbidden alley asphalt corridor (+ margin so the bin
+    // body never sits on the carriageway).
+    const alleyClear = alleyW > 0 ? (alleyW / 2 + 1.6) : 0;
+    // Reject anything whose footprint still overlaps main-road asphalt.
+    const roadHalfClear = ROAD_W / 2 + 0.85;
     const pool = [];
     const seen = new Set();
+
+    // True when (x,z) lies on a dacha alley asphalt strip (or its mouth).
+    const onAlleyAsphalt = (x, z) => {
+      if (alleyW <= 0) return false;
+      for (let i = 0; i < coords.length - 1; i++) {
+        for (let j = 0; j < coords.length - 1; j++) {
+          if (isSpecialBlock(map, i, j, 'factory')) continue;
+          const x1 = coords[i] + ROAD_W / 2;
+          const z1 = coords[j] + ROAD_W / 2;
+          const x2 = coords[i + 1] - ROAD_W / 2;
+          const z2 = coords[j + 1] - ROAD_W / 2;
+          const bcx = (x1 + x2) / 2;
+          const bcz = (z1 + z2) / 2;
+          // N–S alley corridor
+          if (Math.abs(x - bcx) <= alleyClear && z >= z1 - 1 && z <= z2 + 1) return true;
+          // E–W alley corridor
+          if (Math.abs(z - bcz) <= alleyClear && x >= x1 - 1 && x <= x2 + 1) return true;
+        }
+      }
+      return false;
+    };
+
+    // True when point still sits on (or overlaps) a main grid carriageway.
+    const onMainRoadAsphalt = (x, z) => {
+      for (let i = 0; i < coords.length; i++) {
+        const line = coords[i];
+        if (Math.abs(z - line) <= roadHalfClear && Math.abs(x) <= roadEdge + 0.5) return true;
+        if (Math.abs(x - line) <= roadHalfClear && Math.abs(z) <= roadEdge + 0.5) return true;
+      }
+      return false;
+    };
+
+    // Keep bins clear of intersection boxes (stops mid-road / zebra spawns).
+    const nearIntersection = (x, z) => {
+      const box = ROAD_W / 2 + 3.5;
+      for (let i = 0; i < coords.length; i++) {
+        for (let j = 0; j < coords.length; j++) {
+          if (Math.abs(x - coords[i]) <= box && Math.abs(z - coords[j]) <= box) return true;
+        }
+      }
+      return false;
+    };
+
     const add = (axis, line, lane, along) => {
       if (Math.abs(along) > SPAWN_LIMIT) return;
       const len = Math.round(Math.abs(along) / 2);
@@ -2876,44 +4179,111 @@
       let x, z;
       if (axis === 'x') { x = along; z = line + perp; }
       else { x = line + perp; z = along; }
-      // Hard reachability filter. A bin placed on the outer side of a ±120 line
-      // lands at ±129.5, i.e. on the decorative belt behind the kerb, where the
-      // perimeter fences and dead-end barriers make it unreachable — so only the
-      // city-side offset of the outermost streets survives.
-      if (Math.abs(x) > ROAD_EDGE || Math.abs(z) > ROAD_EDGE) return;
+      // Hard reachability filter — bins must stay inside the paved grid.
+      if (Math.abs(x) > roadEdge || Math.abs(z) > roadEdge) return;
+      // Never drop a bin onto a narrow alley carriageway.
+      if (onAlleyAsphalt(x, z)) return;
+      if (onMainRoadAsphalt(x, z)) return;
+      if (nearIntersection(x, z)) return;
       seen.add(key);
       pool.push({ x, z, angle: binAngleForPerp(axis, perpSign), axis, line, lane, along, perpSign });
     };
 
-    gridCoords.forEach((line, idx) => {
-      // --- x-roads (running east-west along Z = line) ---
-      add('x', line, LANE, -80);            // mid-block, kerb side
-      add('x', line, -LANE, 80);            // mid-block, opposite curb
-      add('x', line, LANE, -20);            // inner mid-block
-      add('x', line, -LANE, 20);            // inner mid-block
-      add('x', line, LANE, 60);             // outer mid-block
-      add('x', line, -LANE, -60);           // outer mid-block
-      if (idx % 2 === 1) add('x', line, LANE, -12); // near an intersection
+    // Mid-block along offsets derived from consecutive intersections so both
+    // the dense downtown grid and the wide suburb grid get usable kerbside spots.
+    // Wider gaps (suburb) get denser sampling so the pool stays ≥ 12 after filters.
+    const midOffsets = [];
+    for (let i = 0; i < coords.length - 1; i++) {
+      const a = coords[i];
+      const b = coords[i + 1];
+      const span = b - a;
+      const samples = span > 90 ? [0.18, 0.32, 0.45, 0.55, 0.68, 0.82] : [0.28, 0.5, 0.72];
+      for (let s = 0; s < samples.length; s++) {
+        midOffsets.push(a + span * samples[s]);
+      }
+    }
 
-      // --- z-roads (running north-south along X = line) ---
-      add('z', line, LANE, -80);
-      add('z', line, -LANE, 80);
-      add('z', line, LANE, -20);
-      add('z', line, -LANE, 20);
-      add('z', line, LANE, 60);
-      add('z', line, -LANE, -60);
-      if (idx % 2 === 1) add('z', line, -LANE, 12); // near an intersection
+    coords.forEach((line, idx) => {
+      midOffsets.forEach((along, oi) => {
+        const lane = ((idx + oi) % 2 === 0) ? LANE : -LANE;
+        add('x', line, lane, along);
+        add('z', line, -lane, along);
+        // Opposite curb for sparse grids — doubles suburb coverage.
+        if (coords.length <= 3) {
+          add('x', line, -lane, along);
+          add('z', line, lane, along);
+        }
+      });
+      if (idx % 2 === 1) {
+        add('x', line, LANE, -12);
+        add('z', line, -LANE, 12);
+      }
     });
 
-    // --- Park perimeter (Central Park block) ---
-    diagonal.forEach(([sx, sz]) => {
-      add('x', 40, sx > 0 ? -LANE : LANE, sz * 76);
-      add('z', 40, -LANE, sz * 76);
-      add('z', 40, LANE, sz * 76);
+    // Extra kerbside spots around park blocks (city-side of each park edge).
+    const parks = (map.special && map.special.parks) || [];
+    parks.forEach(([pi, pj]) => {
+      if (pi >= coords.length - 1 || pj >= coords.length - 1) return;
+      const zLineA = coords[pj];
+      const zLineB = coords[pj + 1];
+      const xLineA = coords[pi];
+      const xLineB = coords[pi + 1];
+      const midX = (xLineA + xLineB) / 2;
+      const midZ = (zLineA + zLineB) / 2;
+      add('x', zLineA, LANE, midX);
+      add('x', zLineB, -LANE, midX);
+      add('z', xLineA, -LANE, midZ);
+      add('z', xLineB, LANE, midZ);
     });
+
+    // Narrow dacha alleys — bins sit on the plot edge past the asphalt (+ gap),
+    // never on the carriageway or in the alley crossroads.
+    if (map.theme === 'suburb' && alleyW > 0) {
+      const ALLEY_GAP = 0.7; // must match createDachaBlock3D
+      // Centre of bin past alley edge + gap, slightly into the lawn (~1.1 m).
+      const alleyKerb = alleyW / 2 + ALLEY_GAP + 1.1;
+      const crossClear = alleyW / 2 + 3.5; // keep clear of the alley cross
+      const addAlley = (x, z, angle) => {
+        if (Math.abs(x) > roadEdge || Math.abs(z) > roadEdge) return;
+        if (Math.abs(x) > SPAWN_LIMIT && Math.abs(z) > SPAWN_LIMIT) return;
+        // Reject anything that still lands on asphalt (safety net).
+        if (onAlleyAsphalt(x, z)) return;
+        const key = `alley|${Math.round(x * 2)}|${Math.round(z * 2)}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        pool.push({ x: x, z: z, angle: angle, axis: 'alley', line: 0, lane: 0, along: 0, perpSign: 1 });
+      };
+
+      for (let i = 0; i < coords.length - 1; i++) {
+        for (let j = 0; j < coords.length - 1; j++) {
+          if (isSpecialBlock(map, i, j, 'factory')) continue;
+          const x1 = coords[i] + ROAD_W / 2;
+          const z1 = coords[j] + ROAD_W / 2;
+          const x2 = coords[i + 1] - ROAD_W / 2;
+          const z2 = coords[j + 1] - ROAD_W / 2;
+          const bcx = (x1 + x2) / 2;
+          const bcz = (z1 + z2) / 2;
+          // Mid-plot along the alley, well clear of the crossroads.
+          const alongZ = (z2 - z1) * 0.28;
+          const alongX = (x2 - x1) * 0.28;
+          if (alongZ < crossClear || alongX < crossClear) continue;
+
+          // N–S alley (line x = bcx): bins on both kerbs, mid-block along Z.
+          [-alongZ, alongZ].forEach((dz) => {
+            addAlley(bcx - alleyKerb, bcz + dz, Math.PI / 2);
+            addAlley(bcx + alleyKerb, bcz + dz, -Math.PI / 2);
+          });
+          // E–W alley (line z = bcz): bins on both kerbs, mid-block along X.
+          [-alongX, alongX].forEach((dx) => {
+            addAlley(bcx + dx, bcz - alleyKerb, 0);
+            addAlley(bcx + dx, bcz + alleyKerb, Math.PI);
+          });
+        }
+      }
+    }
 
     return pool;
-  })();
+  }
 
   // Fisher-Yates shuffle on a copy (the pool itself must stay intact).
   function shuffleCopy(arr) {
@@ -2936,12 +4306,12 @@
     pole.castShadow = true;
     lampGroup.add(pole);
 
-    // Lantern fixture
-    const lantern = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.2, 0.65, 6), matHeadlight);
+    // Lantern fixture (shared glass — brighter at night via applyTimeOfDay).
+    const lantern = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.2, 0.65, 6), matStreetLampGlass);
     lantern.position.set(0, 5.3, 0);
     lampGroup.add(lantern);
 
-    scene.add(lampGroup);
+    cityAdd(lampGroup);
   }
 
   // --- Detailed 3D Trees with Branch Geometry ---
@@ -2966,7 +4336,7 @@
     f2.castShadow = true;
     treeGroup.add(f1, f2);
 
-    scene.add(treeGroup);
+    cityAdd(treeGroup);
   }
 
   // --- Central Park 3D ---
@@ -2977,7 +4347,7 @@
     );
     park.position.set(cx, 0.19, cz);
     park.receiveShadow = true;
-    scene.add(park);
+    cityAdd(park);
 
     // Diagonal and Cross Stone Paths
     const pathMat = new THREE.MeshStandardMaterial({ color: 0xdcdde1, roughness: 0.65 });
@@ -2989,7 +4359,7 @@
     p2.rotateX(-Math.PI / 2);
     p2.position.set(cx, 0.391, cz);
     p2.receiveShadow = true;
-    scene.add(p1, p2);
+    cityAdd(p1, p2);
 
     // 3D Tiered Water Fountain
     const fountainGroup = new THREE.Group();
@@ -3012,7 +4382,7 @@
     b2.position.y = 3.2;
     fountainGroup.add(b2);
 
-    scene.add(fountainGroup);
+    cityAdd(fountainGroup);
 
     // Fountain Collision
     colliders.push({
@@ -3046,7 +4416,7 @@
           new THREE.MeshStandardMaterial({ color: flowerColors[(fx + fz + 4) % flowerColors.length], roughness: 0.6 })
         );
         blooms.position.set(cx + fx * 14, 0.54, cz + fz * 14);
-        scene.add(bed, blooms);
+        cityAdd(bed, blooms);
       });
     });
 
@@ -3123,6 +4493,7 @@
 
     // Neon Guide Beacons
     const neonMat = new THREE.MeshStandardMaterial({ color: 0x2ecc71, emissive: 0x2ecc71, emissiveIntensity: 1.0 });
+    registerNightGlow(neonMat, 1.0, 1.8);
     const p1 = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 3.0, 10), neonMat);
     p1.position.set(w * 0.18 - bayW / 2, 1.8, d * 0.22 - bayD / 2);
     const p2 = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 3.0, 10), neonMat);
@@ -3130,29 +4501,36 @@
     plantGroup.add(p1, p2);
 
     // --- EV Fast Charging Pad (open to the player at any time) ---
-    // Parked at the front-right corner of the yard, right next to the unloading
-    // dock bay. The zone is a plain radius check, so it works mid-shift.
-    const CHARGE_RADIUS = 8.0;
-    const chargeLocalX = 24;   // world x ≈ cx + 24 (open corner, no colliders)
-    const chargeLocalZ = 24;   // world z ≈ cz + 24
+    // Scale with the yard so industrial's huge block does not park the pad on
+    // top of the unloading dock (fixed +24/+24 used to collide there).
+    // Unload sits at ~(+0.18w, +0.22d); charge goes further into the SE corner.
+    const CHARGE_RADIUS = Math.max(7.5, Math.min(10, w * 0.075));
+    const chargeLocalX = w * 0.38;
+    const chargeLocalZ = d * 0.38;
 
     // Glowing green asphalt polygon with a neon-cyan rim.
+    const chargePadMat = new THREE.MeshStandardMaterial({
+      color: 0x0b3a2a,
+      emissive: 0x1fbf6b,
+      emissiveIntensity: 0.45,
+      roughness: 0.45
+    });
+    registerNightGlow(chargePadMat, 0.45, 1.1);
     const chargePad = new THREE.Mesh(
       new THREE.CircleGeometry(CHARGE_RADIUS, 40),
-      new THREE.MeshStandardMaterial({
-        color: 0x0b3a2a,
-        emissive: 0x1fbf6b,
-        emissiveIntensity: 0.45,
-        roughness: 0.45
-      })
+      chargePadMat
     );
     chargePad.rotateX(-Math.PI / 2);
     chargePad.position.set(chargeLocalX, 0.42, chargeLocalZ);
     plantGroup.add(chargePad);
 
+    const chargeRimMat = new THREE.MeshStandardMaterial({
+      color: 0x00d2d3, emissive: 0x00d2d3, emissiveIntensity: 1.0, side: THREE.DoubleSide
+    });
+    registerNightGlow(chargeRimMat, 1.0, 1.7);
     const chargeRim = new THREE.Mesh(
       new THREE.RingGeometry(CHARGE_RADIUS - 0.35, CHARGE_RADIUS, 48),
-      new THREE.MeshStandardMaterial({ color: 0x00d2d3, emissive: 0x00d2d3, emissiveIntensity: 1.0, side: THREE.DoubleSide })
+      chargeRimMat
     );
     chargeRim.rotateX(-Math.PI / 2);
     chargeRim.position.set(chargeLocalX, 0.44, chargeLocalZ);
@@ -3167,9 +4545,13 @@
     boltShape.lineTo(0.55, -0.05);
     boltShape.lineTo(0.05, -0.05);
     boltShape.closePath();
+    const boltMat = new THREE.MeshStandardMaterial({
+      color: 0x00d2d3, emissive: 0x00d2d3, emissiveIntensity: 1.2, roughness: 0.3
+    });
+    registerNightGlow(boltMat, 1.2, 2.0);
     const bolt = new THREE.Mesh(
       new THREE.ExtrudeGeometry(boltShape, { depth: 0.12, bevelEnabled: false }),
-      new THREE.MeshStandardMaterial({ color: 0x00d2d3, emissive: 0x00d2d3, emissiveIntensity: 1.2, roughness: 0.3 })
+      boltMat
     );
     bolt.position.set(chargeLocalX, 4.4, chargeLocalZ);
     plantGroup.add(bolt);
@@ -3178,15 +4560,17 @@
     boltPole.position.set(chargeLocalX, 2.2, chargeLocalZ);
     plantGroup.add(boltPole);
 
-    scene.add(plantGroup);
+    cityAdd(plantGroup);
 
     const factoryBeacon = createFactoryBeacon();
     factoryBeacon.position.set(cx + w * 0.18, 0, cz + d * 0.22);
-    scene.add(factoryBeacon);
+    cityAdd(factoryBeacon);
 
     recyclingPlant3D = {
       x: cx,
       z: cz,
+      w: w,
+      d: d,
       beacon: factoryBeacon,
       unloadBay: {
         x: cx + w * 0.18,
@@ -3232,20 +4616,18 @@
 
   // Lateral offset from the road centre line (±3.6 → right-hand-drive lanes)
   const NPC_LANE_OFFSET = 3.6;
-  // The city roads run along `gridCoords`: rows are Z lines, columns are X lines.
-  const NPC_GRID_ROW_Z = gridCoords;
-  const NPC_GRID_COL_X = gridCoords;
-  // Hard U-turn boundary: NPCs loop at ±122, i.e. on the last intersection
-  // (±120) just short of the dead-end barrier at ±128 — they never drive into
-  // the decorative perimeter belt.
-  const NPC_TURN_ZONE = 122;
+  // Mirrored from the active map profile (refreshed in applyActiveMap).
+  let NPC_GRID_ROW_Z = gridCoords;
+  let NPC_GRID_COL_X = gridCoords;
+  // Hard U-turn boundary: NPCs loop just short of the dead-end barriers.
+  let NPC_TURN_ZONE = MAP_PROFILES.downtown.npcTurnZone;
   // Cars spawn only on the inner streets, comfortably inside the turn zone.
-  const NPC_SPAWN_RANGE = 110;
+  let NPC_SPAWN_RANGE = 110;
   // Probability of turning at any given intersection (otherwise drive straight).
   const NPC_TURN_CHANCE = 0.35;
 
-  const NPC_SPAWN_MIN = 8;
-  const NPC_SPAWN_MAX = 10;
+  let NPC_SPAWN_MIN = MAP_PROFILES.downtown.npcCount[0];
+  let NPC_SPAWN_MAX = MAP_PROFILES.downtown.npcCount[1];
   // Forward proximity sensor reach in metres (the task's 6-metre brake distance).
   const NPC_SENSOR_Z = 6.0;
   // Same-direction (convoy) braking: a car only brakes for another NPC when the
@@ -3296,6 +4678,8 @@
   const npcTaillightGeom = new THREE.BoxGeometry(0.28, 0.12, 0.08);
   const matNpcHeadlight = new THREE.MeshStandardMaterial({ color: 0xfff6c8, emissive: 0xfff6c8, emissiveIntensity: 0.75 });
   const matNpcTaillight = new THREE.MeshStandardMaterial({ color: 0xe74c3c, emissive: 0xe74c3c, emissiveIntensity: 0.65 });
+  todVehicleMats.npcHead = matNpcHeadlight;
+  todVehicleMats.npcTail = matNpcTaillight;
 
   let npcCars = [];
 
@@ -3373,7 +4757,29 @@
     return lanes;
   }
 
-  const NPC_LANES = buildNpcLanes();
+  let NPC_LANES = buildNpcLanes();
+
+  // Sync mutable world / traffic parameters with the selected map profile.
+  function applyActiveMap(mapId) {
+    const map = MAP_PROFILES[normalizeMapId(mapId)] || MAP_PROFILES.downtown;
+    activeMapId = map.id;
+    gridCoords = map.gridCoords.slice();
+    ROAD_EDGE = map.roadEdge;
+    WORLD_SIZE = map.worldSize || 420;
+    ROAD_W = map.roadWidth || 16.5;
+    NPC_TURN_ZONE = map.npcTurnZone;
+    NPC_SPAWN_RANGE = Math.min(map.spawnLimit + 10, map.roadEdge - 18);
+    NPC_SPAWN_MIN = map.npcCount[0];
+    NPC_SPAWN_MAX = map.npcCount[1];
+    NPC_GRID_ROW_Z = gridCoords;
+    NPC_GRID_COL_X = gridCoords;
+    NPC_LANES = buildNpcLanes();
+    if (scene && scene.fog) {
+      scene.fog.near = WORLD_SIZE * 0.28;
+      scene.fog.far = WORLD_SIZE * 1.2;
+    }
+    return map;
+  }
 
   // Snap a car onto a lane. `dir` is the travel direction along that axis (+1/-1).
   function placeCarOnLane(car, axis, line, lane, direction, alongCoord) {
@@ -3481,6 +4887,300 @@
     npcCars = [];
   }
 
+  // ==========================================================================
+  // Living city — sidewalk pedestrians + crosswalk yield for NPC traffic
+  // Walk sidewalks; at corners randomly turn or cross straight; U-turn at map edge.
+  // ==========================================================================
+  const PED_SHIRTS = [0xe74c3c, 0x0984e3, 0x2ecc71, 0xf39c12, 0x9b59b6, 0x00cec9, 0xe84393, 0xfdcb6e];
+  const PED_PANTS = [0x2c3e50, 0x1e272e, 0x34495e, 0x4a5568];
+  const PED_TURN_LEFT = 0.30;
+  const PED_TURN_RIGHT = 0.60; // (right if roll in [0.30, 0.60), else straight cross)
+
+  function removePedestrians() {
+    for (const ped of pedestrians) scene.remove(ped.group);
+    pedestrians = [];
+  }
+
+  function pedSidewalkOffset() {
+    return ROAD_W * 0.5 + SIDEWALK_W * 0.55;
+  }
+
+  function pedFacingAngle(axis, dir) {
+    if (axis === 'x') return dir > 0 ? Math.PI / 2 : -Math.PI / 2;
+    return dir > 0 ? 0 : Math.PI;
+  }
+
+  function pedSnapToSidewalk(ped) {
+    if (ped.axis === 'x') ped.z = ped.line;
+    else ped.x = ped.line;
+    ped.angle = pedFacingAngle(ped.axis, ped.dir);
+  }
+
+  // Returns the crosswalk under (x,z), or null. Used for walk state + NPC yield axis.
+  function findCrosswalkAt(x, z) {
+    const roadHalf = ROAD_W * 0.5;
+    for (let i = 0; i < crosswalks.length; i++) {
+      const cw = crosswalks[i];
+      if (cw.horizontal) {
+        if (Math.abs(z - cw.z) <= cw.halfAcross + 0.45 && Math.abs(x - cw.x) < roadHalf) return cw;
+      } else if (Math.abs(x - cw.x) <= cw.halfAcross + 0.45 && Math.abs(z - cw.z) < roadHalf) {
+        return cw;
+      }
+    }
+    return null;
+  }
+
+  function syncPedCrosswalkFlag(ped) {
+    const cwHit = findCrosswalkAt(ped.x, ped.z);
+    ped.onCrosswalk = !!cwHit;
+    ped.crosswalkHorizontal = cwHit ? cwHit.horizontal : null;
+  }
+
+  function applyPedPose(ped, step) {
+    ped.group.position.set(ped.x, 0.35, ped.z);
+    ped.group.rotation.y = ped.angle;
+    if (step > 0) {
+      ped.walkPhase += step * 10;
+      if (ped.group.userData.legL) {
+        const swing = Math.sin(ped.walkPhase) * 0.55;
+        ped.group.userData.legL.rotation.x = swing;
+        ped.group.userData.legR.rotation.x = -swing;
+      }
+    } else if (ped.group.userData.legL) {
+      ped.group.userData.legL.rotation.x *= 0.85;
+      ped.group.userData.legR.rotation.x *= 0.85;
+    }
+  }
+
+  // turn: +1 left, -1 right relative to current facing.
+  function applyPedCornerTurn(ped, junction, turn) {
+    const sw = pedSidewalkOffset();
+    const nearSide = -ped.dir; // side of the cross-road we are still on
+    const newAxis = ped.axis === 'x' ? 'z' : 'x';
+    const newDir = ped.axis === 'x' ? (turn * ped.dir) : (turn * -ped.dir);
+    const newLine = junction + nearSide * sw;
+
+    // Snap to the corner kerb, then switch onto the perpendicular sidewalk.
+    if (ped.axis === 'x') {
+      ped.x = newLine;
+      ped.z = ped.line;
+    } else {
+      ped.z = newLine;
+      ped.x = ped.line;
+    }
+    ped.axis = newAxis;
+    ped.dir = newDir;
+    ped.line = newLine;
+    ped.roadLine = junction;
+    ped.side = nearSide;
+    pedSnapToSidewalk(ped);
+    ped.crossing = null;
+    ped.waitTimer = 0.12 + Math.random() * 0.25;
+  }
+
+  // Keep sidewalk line; walk straight across the intersecting carriageway.
+  function startPedStraightCrossing(ped, junction) {
+    const sw = pedSidewalkOffset();
+    const nearAlong = junction - ped.dir * (ROAD_W * 0.5 + 0.25);
+    const farAlong = junction + ped.dir * sw;
+    if (ped.axis === 'x') ped.x = nearAlong;
+    else ped.z = nearAlong;
+    pedSnapToSidewalk(ped);
+    ped.crossing = { targetAlong: farAlong };
+  }
+
+  function spawnPedestrians() {
+    removePedestrians();
+    if (!gridCoords.length) return;
+
+    const map = getActiveMap();
+    const count = map.pedCount || 6;
+    const sw = pedSidewalkOffset();
+    const mapLimit = ROAD_EDGE - sw - 2;
+
+    for (let i = 0; i < count; i++) {
+      const axis = Math.random() < 0.5 ? 'x' : 'z';
+      const roadLine = gridCoords[Math.floor(Math.random() * gridCoords.length)];
+      const side = Math.random() < 0.5 ? -1 : 1;
+      const line = roadLine + side * sw;
+      const dir = Math.random() < 0.5 ? 1 : -1;
+      // Spawn mid-block so the first corner decision feels natural.
+      let along = (Math.random() - 0.5) * 2 * Math.min(mapLimit, 90);
+      for (let g = 0; g < gridCoords.length; g++) {
+        if (Math.abs(along - gridCoords[g]) < ROAD_W * 0.55) {
+          along = gridCoords[g] + (Math.random() < 0.5 ? -1 : 1) * (ROAD_W * 0.5 + 6);
+          break;
+        }
+      }
+      along = Math.max(-mapLimit, Math.min(mapLimit, along));
+
+      const x = axis === 'x' ? along : line;
+      const z = axis === 'x' ? line : along;
+      const shirt = PED_SHIRTS[i % PED_SHIRTS.length];
+      const pants = PED_PANTS[i % PED_PANTS.length];
+      const group = createMinifigure3D(x, z, 0, shirt, pants, i % 3 !== 1, { skipCityAdd: true });
+      scene.add(group);
+
+      const ped = {
+        group,
+        x,
+        z,
+        axis,
+        dir,
+        line,
+        roadLine,
+        side,
+        angle: pedFacingAngle(axis, dir),
+        speed: 0.030 + Math.random() * 0.016,
+        walkPhase: Math.random() * Math.PI * 2,
+        waitTimer: Math.random() * 0.8,
+        onCrosswalk: false,
+        crosswalkHorizontal: null,
+        crossing: null,
+        decidedJunction: null
+      };
+      group.rotation.y = ped.angle;
+      pedestrians.push(ped);
+    }
+  }
+
+  function updatePedestrians(delta) {
+    if (!pedestrians.length) return;
+    const timeFactor = Math.min(Math.max(delta, 0.35), 2.5);
+    const seconds = timeFactor / 60;
+    const sw = pedSidewalkOffset();
+    const mapLimit = ROAD_EDGE - sw - 1.5;
+    const decisionDist = ROAD_W * 0.5 + 0.4;
+
+    for (const ped of pedestrians) {
+      if (ped.waitTimer > 0) {
+        ped.waitTimer -= seconds;
+        if (!ped.crossing) {
+          ped.onCrosswalk = false;
+          ped.crosswalkHorizontal = null;
+        }
+        applyPedPose(ped, 0);
+        continue;
+      }
+
+      const step = ped.speed * timeFactor;
+
+      // --- Zebra / carriageway crossing (axis-locked straight line) ---
+      if (ped.crossing) {
+        const along = ped.axis === 'x' ? ped.x : ped.z;
+        const next = along + ped.dir * step;
+        const target = ped.crossing.targetAlong;
+        const arrived = ped.dir > 0 ? next >= target : next <= target;
+        if (arrived) {
+          if (ped.axis === 'x') ped.x = target;
+          else ped.z = target;
+          ped.crossing = null;
+          ped.decidedJunction = null;
+          pedSnapToSidewalk(ped);
+          ped.onCrosswalk = false;
+          ped.crosswalkHorizontal = null;
+          ped.waitTimer = 0.2 + Math.random() * 0.5;
+        } else {
+          if (ped.axis === 'x') {
+            ped.x = next;
+            ped.z = ped.line;
+          } else {
+            ped.z = next;
+            ped.x = ped.line;
+          }
+          ped.angle = pedFacingAngle(ped.axis, ped.dir);
+          syncPedCrosswalkFlag(ped);
+        }
+        applyPedPose(ped, step);
+        continue;
+      }
+
+      // --- Sidewalk travel ---
+      const along = ped.axis === 'x' ? ped.x : ped.z;
+      let nextAlong = along + ped.dir * step;
+
+      // End of playable map → U-turn on the same sidewalk.
+      if (nextAlong > mapLimit || nextAlong < -mapLimit) {
+        ped.dir *= -1;
+        ped.decidedJunction = null;
+        pedSnapToSidewalk(ped);
+        ped.waitTimer = 0.35 + Math.random() * 0.4;
+        applyPedPose(ped, 0);
+        continue;
+      }
+
+      // Corner / junction decision: cross-roads are the grid lines on the other axis.
+      const junctions = gridCoords;
+      for (let ji = 0; ji < junctions.length; ji++) {
+        const j = junctions[ji];
+        const decisionAt = j - ped.dir * decisionDist;
+        const hit = ped.dir > 0
+          ? (along < decisionAt && nextAlong >= decisionAt)
+          : (along > decisionAt && nextAlong <= decisionAt);
+        if (!hit) continue;
+
+        if (ped.decidedJunction === j) break;
+        ped.decidedJunction = j;
+
+        const roll = Math.random();
+        if (roll < PED_TURN_LEFT) {
+          applyPedCornerTurn(ped, j, +1);
+        } else if (roll < PED_TURN_RIGHT) {
+          applyPedCornerTurn(ped, j, -1);
+        } else {
+          startPedStraightCrossing(ped, j);
+        }
+        applyPedPose(ped, 0);
+        nextAlong = NaN; // signal: skip free integration this frame
+        break;
+      }
+
+      if (Number.isNaN(nextAlong)) continue;
+
+      // Forget junction lock once we are clear of it (mid-block again).
+      if (ped.decidedJunction !== null) {
+        if (Math.abs(along - ped.decidedJunction) > ROAD_W * 0.5 + 4) {
+          ped.decidedJunction = null;
+        }
+      }
+
+      if (ped.axis === 'x') {
+        ped.x = nextAlong;
+        ped.z = ped.line;
+      } else {
+        ped.z = nextAlong;
+        ped.x = ped.line;
+      }
+      ped.angle = pedFacingAngle(ped.axis, ped.dir);
+      ped.onCrosswalk = false;
+      ped.crosswalkHorizontal = null;
+      applyPedPose(ped, step);
+    }
+  }
+
+  // True when a walking minifig is on a zebra ahead of this car (yield zone).
+  // Horizontal zebra → N–S road → cars with axis 'z' yield.
+  // Vertical zebra   → E–W road → cars with axis 'x' yield.
+  function npcPedestrianBlocked(car) {
+    if (!pedestrians.length) return false;
+    const dirX = car.axis === 'x' ? car.dir : 0;
+    const dirZ = car.axis === 'z' ? car.dir : 0;
+    const reach = NPC_SENSOR_Z + 3.5;
+
+    for (const ped of pedestrians) {
+      if (!ped.onCrosswalk) continue;
+      if (ped.crosswalkHorizontal === true && car.axis !== 'z') continue;
+      if (ped.crosswalkHorizontal === false && car.axis !== 'x') continue;
+      const dx = ped.x - car.x;
+      const dz = ped.z - car.z;
+      const ahead = dx * dirX + dz * dirZ;
+      if (ahead < 0.4 || ahead > reach) continue;
+      const lateral = car.axis === 'x' ? Math.abs(ped.z - car.z) : Math.abs(ped.x - car.x);
+      if (lateral < 5.2) return true;
+    }
+    return false;
+  }
+
   // --- Forward proximity sensor ---
   // The player truck always makes an NPC brake. Other NPC cars are only treated
   // as obstacles when they travel the SAME direction (convoy, heading within
@@ -3499,6 +5199,9 @@
     if (truckAhead > 0 && truckAhead < truckReach && Math.hypot(tdx, tdz) < truckReach) {
       return true;
     }
+
+    // --- Pedestrians on a zebra ahead: full stop until the crossing clears ---
+    if (npcPedestrianBlocked(car)) return true;
 
     // --- Other NPC cars: only brake for same-direction convoys ---
     // Heading vectors (three.js rotation.y: forward = (sin, cos)).
@@ -3573,9 +5276,10 @@
       // A car pinned still for too long WITHOUT the player nearby is stuck on
       // other traffic (crossroads, head-on). Teleport it to a free random lane
       // so the fleet never freezes forever. Stalls caused by the player truck
-      // are exempt: the NPC keeps patiently yielding instead of vanishing.
+      // or a crossing pedestrian are exempt: the NPC keeps patiently yielding.
       const playerDist = Math.hypot(car.x - truckPhys.x, car.z - truckPhys.z);
-      if (Math.abs(car.speed) < 0.02 && playerDist > NPC_STUCK_PLAYER_RANGE) {
+      const yieldingForPed = blocked && npcPedestrianBlocked(car);
+      if (Math.abs(car.speed) < 0.02 && playerDist > NPC_STUCK_PLAYER_RANGE && !yieldingForPed) {
         car.stuckTimer += seconds;
         if (car.stuckTimer > NPC_STUCK_SECONDS) {
           if (respawnNpcCarToFreeLane(car)) {
@@ -3777,19 +5481,20 @@
 
   // --- Level Initialization ---
   function initLevel() {
+    const map = applyActiveMap(activeMapId);
     generate3DCity();
 
-    // --- Procedural container placement (Задача: расширенный пул точек) ---
-    // generate3DCity() already removed every previous bin/marker from the scene
-    // and emptied trashBins3D. Pick 12 unique spawn points out of the pool and
-    // hand out a balanced spread of materials (exactly 4 of each type),
-    // shuffled so the pickup order along the route stays random.
-    gameState.totalBins = 12;
+    // --- Procedural container placement ---
+    // generate3DCity() already cleared the previous city + bins. Pick unique
+    // spawn points from the active map's pool with a balanced material spread.
+    gameState.totalBins = map.totalBins;
+    gameState.mapId = map.id;
     const binCategories = ['yellow', 'blue', 'green'];
     const balancedCategories = shuffleCopy(
       binCategories.flatMap((cat) => [cat, cat, cat, cat])
     );
-    const chosenSpawns = shuffleCopy(POTENTIAL_BIN_SPAWNS).slice(0, gameState.totalBins);
+    const spawnPool = buildBinSpawnPool(map);
+    const chosenSpawns = shuffleCopy(spawnPool).slice(0, gameState.totalBins);
     chosenSpawns.forEach((spot, i) => {
       spawn3DBin(spot.x, spot.z, spot.angle, balancedCategories[i]);
     });
@@ -3805,9 +5510,9 @@
     gameState.routeRecorded = false;
     gameState.timePenalty = 0;
 
-    truckPhys.x = -40;
-    truckPhys.z = 25;
-    truckPhys.angle = 0;
+    truckPhys.x = map.truckStart.x;
+    truckPhys.z = map.truckStart.z;
+    truckPhys.angle = map.truckStart.angle;
     truckPhys.speed = 0;
     truckPhys.arm.active = false;
     truckPhys.arm.state = 'idle';
@@ -3853,21 +5558,33 @@
     // spawn-overlap check uses the correct player position.
     lastTrafficFrameTime = 0;
     spawnTraffic();
+    spawnPedestrians();
 
     updateStatsHUD();
     updateTaskHUD();
     updateBestTimeHUD();
+    // City lamps / fog distances are rebuilt above — re-apply day/night + weather.
+    applyAtmosphere(activeTimeOfDay, activeWeather);
   }
 
   // --- Strict Solid Collision & Vehicle Dynamics ---
   function updatePhysics() {
+    // Pause the shift while the map picker is open (boot or mid-career switch).
+    if (mapSelectModal && mapSelectModal.classList.contains('show')) {
+      truckPhys.speed = 0;
+      truckPhys.powerFlow = 0;
+      return;
+    }
+
     // e-PTO peak override (hydraulic pump). Evaluated before every early exit
     // so the 240 kW spike stays visible on the cluster for the full arm cycle,
     // including while the pickup cutscene early-returns below.
     const ptoPeak = performance.now() < truckPhys.ptoOverrideUntil;
 
-    // Traffic keeps flowing (and braking) even while cutscenes play.
-    updateTraffic(getTrafficDelta());
+    // Traffic + sidewalk walkers keep moving (and NPC yield) even during cutscenes.
+    const trafficDelta = getTrafficDelta();
+    updatePedestrians(trafficDelta);
+    updateTraffic(trafficDelta);
 
     if (cutsceneActive || unloadCutsceneActive || truckPhys.isDumpingAtFactory || truckPhys.isQuickDumping) {
       truckPhys.speed *= 0.8;
@@ -3894,6 +5611,15 @@
     truckPhys.brake = truckPhys.baseBrake * (1.0 - (truckPhys.currentCargoWeight / truckPhys.maxCargoWeight) * 0.20);
     truckPhys.turnSpeed = truckPhys.baseTurnSpeed * (1.0 - (truckPhys.currentCargoWeight / truckPhys.maxCargoWeight) * 0.18);
 
+    // Wet road grip: rain softens accel/brake/steer and lets the truck coast farther.
+    const isWetRoad = activeWeather === 'rain';
+    if (isWetRoad) {
+      truckPhys.accel *= 0.88;
+      truckPhys.brake *= 0.78;
+      truckPhys.turnSpeed *= 0.82;
+    }
+    const coastFriction = isWetRoad ? truckPhys.friction * 0.62 : truckPhys.friction;
+
     // Acceleration & Braking with authentic heavy commercial weight
     if (keys.up) {
       if (truckPhys.speed < 0) {
@@ -3912,10 +5638,10 @@
       }
     } else {
       if (truckPhys.speed > 0) {
-        truckPhys.speed -= truckPhys.friction;
+        truckPhys.speed -= coastFriction;
         if (truckPhys.speed < 0) truckPhys.speed = 0;
       } else if (truckPhys.speed < 0) {
-        truckPhys.speed += truckPhys.friction;
+        truckPhys.speed += coastFriction;
         if (truckPhys.speed > 0) truckPhys.speed = 0;
       }
     }
@@ -4004,10 +5730,11 @@
     truckPhys.x = Math.max(-bLimit, Math.min(bLimit, truckPhys.x));
     truckPhys.z = Math.max(-bLimit, Math.min(bLimit, truckPhys.z));
 
-    // Realistic suspension pitch & roll
+    // Realistic suspension pitch & roll (wet roads feel a bit floatier in corners)
     const accelRate = truckPhys.speed - prevSpeed;
+    const rollGain = isWetRoad ? 0.82 : 0.65;
     truckPhys.pitch += (-accelRate * 1.6 - truckPhys.pitch) * 0.15;
-    truckPhys.roll += (-truckPhys.steerAngle * truckPhys.speed * 0.65 - truckPhys.roll) * 0.15;
+    truckPhys.roll += (-truckPhys.steerAngle * truckPhys.speed * rollGain - truckPhys.roll) * 0.15;
 
     // Player ↔ NPC traffic collision (impulse, penalty, toast).
     checkTrafficCollisions();
@@ -4289,13 +6016,7 @@
       window.soundManager.playClick();
     }
 
-    if (typeof matAmberBeacon !== 'undefined') {
-      const origIntensity = matAmberBeacon.emissiveIntensity;
-      matAmberBeacon.emissiveIntensity = 2.4;
-      setTimeout(() => {
-        matAmberBeacon.emissiveIntensity = origIntensity;
-      }, 400);
-    }
+    amberFlashUntil = performance.now() + 400;
 
     showToast('МАШИНА ВЕРНУТА НА ДОРОГУ', 'Эвакуация на безопасную полосу выполнена • Двигатель готов', '🛣️', 2600);
   }
@@ -5441,9 +7162,10 @@
       plastic: plasticKg,
       paper: paperKg,
       glass: glassKg
-    });
+    }, gameState.mapId || activeMapId);
     const stats = result.stats;
-    if (recBestTime) recBestTime.textContent = formatDuration(stats.bestTimeSec);
+    const mapBest = stats.bestTimeByMap[gameState.mapId || activeMapId];
+    if (recBestTime) recBestTime.textContent = formatDuration(mapBest);
     if (recTotalKg) recTotalKg.textContent = `${stats.totalRecycledKg} кг`;
     if (recRoutes) recRoutes.textContent = `${stats.routesCompleted}`;
     if (newRecordPill) newRecordPill.style.display = result.isNewRecord ? 'inline-block' : 'none';
@@ -5751,7 +7473,11 @@
     }
 
     // Keep sunlight shadow coverage tightly anchored to vehicle
-    sunLight.position.set(truckPhys.x + 45, 95, truckPhys.z + 45);
+    if (activeTimeOfDay === 'night') {
+      sunLight.position.set(truckPhys.x + 25, 70, truckPhys.z + 35);
+    } else {
+      sunLight.position.set(truckPhys.x + 45, 95, truckPhys.z + 45);
+    }
     sunLight.target = truckMesh;
   }
 
@@ -5764,39 +7490,173 @@
     mCtx.fillStyle = '#1e272e';
     mCtx.fillRect(0, 0, mw, mh);
 
-    const scale = mw / WORLD_SIZE;
     const halfW = mw / 2;
     const halfH = mh / 2;
+    const map = getActiveMap();
+    // Fit radar to the paved play area (+ margin), not the full grass plane —
+    // otherwise the industrial map's 600-world shrinks the grid into a tiny core.
+    const viewHalf = ROAD_EDGE + 24;
+    const scale = halfW / viewHalf;
+    const toMX = (wx) => (wx / viewHalf) * halfW + halfW;
+    const toMY = (wz) => (wz / viewHalf) * halfH + halfH;
 
-    // Roads
+    const roadMin = toMX(-ROAD_EDGE);
+    const roadSpan = toMX(ROAD_EDGE) - roadMin;
+
+    // Theme-coloured block pads (under the road lattice).
+    for (let i = 0; i < gridCoords.length - 1; i++) {
+      for (let j = 0; j < gridCoords.length - 1; j++) {
+        if (isSpecialBlock(map, i, j, 'factory')) continue;
+        const x1 = gridCoords[i] + ROAD_W / 2;
+        const z1 = gridCoords[j] + ROAD_W / 2;
+        const x2 = gridCoords[i + 1] - ROAD_W / 2;
+        const z2 = gridCoords[j + 1] - ROAD_W / 2;
+        const px = toMX(x1);
+        const py = toMY(z1);
+        const pw = toMX(x2) - px;
+        const ph = toMY(z2) - py;
+
+        if (map.theme === 'suburb') {
+          mCtx.fillStyle = '#1a3d2a';
+        } else if (map.theme === 'industrial') {
+          mCtx.fillStyle = '#2a3038';
+        } else if (isSpecialBlock(map, i, j, 'parks')) {
+          mCtx.fillStyle = '#145a32';
+        } else {
+          mCtx.fillStyle = '#243040';
+        }
+        mCtx.fillRect(px, py, pw, ph);
+      }
+    }
+
+    // Main grid roads (wider carriageways read thicker via ROAD_W * scale).
     mCtx.fillStyle = '#34495e';
     gridCoords.forEach(gz => {
-      const y = (gz / (WORLD_SIZE / 2)) * halfH + halfH;
-      mCtx.fillRect(0, y - (ROAD_W * scale) / 2, mw, ROAD_W * scale);
+      const y = toMY(gz);
+      mCtx.fillRect(roadMin, y - (ROAD_W * scale) / 2, roadSpan, ROAD_W * scale);
     });
     gridCoords.forEach(gx => {
-      const x = (gx / (WORLD_SIZE / 2)) * halfW + halfW;
-      mCtx.fillRect(x - (ROAD_W * scale) / 2, 0, ROAD_W * scale, mh);
+      const x = toMX(gx);
+      mCtx.fillRect(x - (ROAD_W * scale) / 2, roadMin, ROAD_W * scale, roadSpan);
     });
 
-    // Factory
+    // Dacha alleys — internal cross roads inside each block (not the factory).
+    if (map.theme === 'suburb') {
+      const alleyW = map.alleyWidth || DACHA_ALLEY_W;
+      const alleyPx = Math.max(1.5, alleyW * scale);
+      mCtx.fillStyle = '#4a6780';
+      for (let i = 0; i < gridCoords.length - 1; i++) {
+        for (let j = 0; j < gridCoords.length - 1; j++) {
+          if (isSpecialBlock(map, i, j, 'factory')) continue;
+          const x1 = gridCoords[i] + ROAD_W / 2;
+          const z1 = gridCoords[j] + ROAD_W / 2;
+          const x2 = gridCoords[i + 1] - ROAD_W / 2;
+          const z2 = gridCoords[j + 1] - ROAD_W / 2;
+          const cx = (x1 + x2) / 2;
+          const cz = (z1 + z2) / 2;
+          const ax = toMX(cx);
+          const az = toMY(cz);
+          const left = toMX(x1);
+          const right = toMX(x2);
+          const top = toMY(z1);
+          const bot = toMY(z2);
+          mCtx.fillRect(ax - alleyPx / 2, top, alleyPx, bot - top);
+          mCtx.fillRect(left, az - alleyPx / 2, right - left, alleyPx);
+        }
+      }
+
+      // Pool yard — small blue disc so the landmark shows on radar.
+      const pool = map.special && map.special.pool;
+      if (pool && pool[0] < gridCoords.length - 1 && pool[1] < gridCoords.length - 1) {
+        const pi = pool[0];
+        const pj = pool[1];
+        const px1 = gridCoords[pi] + ROAD_W / 2;
+        const pz1 = gridCoords[pj] + ROAD_W / 2;
+        const px2 = gridCoords[pi + 1] - ROAD_W / 2;
+        const pz2 = gridCoords[pj + 1] - ROAD_W / 2;
+        const bcx = (px1 + px2) / 2;
+        const bcz = (pz1 + pz2) / 2;
+        const poolX = bcx + (px2 - px1) * 0.22;
+        const poolZ = bcz - (pz2 - pz1) * 0.22;
+        mCtx.beginPath();
+        mCtx.arc(toMX(poolX), toMY(poolZ), 4.5, 0, Math.PI * 2);
+        mCtx.fillStyle = '#3498db';
+        mCtx.fill();
+        mCtx.strokeStyle = '#85c1e9';
+        mCtx.lineWidth = 1;
+        mCtx.stroke();
+      }
+    }
+
+    // Industrial yard lanes — faint cross so big blocks don't read as empty voids.
+    if (map.theme === 'industrial') {
+      mCtx.strokeStyle = 'rgba(241, 196, 15, 0.35)';
+      mCtx.lineWidth = Math.max(1, 1.1 * scale);
+      for (let i = 0; i < gridCoords.length - 1; i++) {
+        for (let j = 0; j < gridCoords.length - 1; j++) {
+          if (isSpecialBlock(map, i, j, 'factory')) continue;
+          const x1 = gridCoords[i] + ROAD_W / 2;
+          const z1 = gridCoords[j] + ROAD_W / 2;
+          const x2 = gridCoords[i + 1] - ROAD_W / 2;
+          const z2 = gridCoords[j + 1] - ROAD_W / 2;
+          const cx = (x1 + x2) / 2;
+          const cz = (z1 + z2) / 2;
+          mCtx.beginPath();
+          mCtx.moveTo(toMX(cx), toMY(z1 + 4));
+          mCtx.lineTo(toMX(cx), toMY(z2 - 4));
+          mCtx.moveTo(toMX(x1 + 4), toMY(cz));
+          mCtx.lineTo(toMX(x2 - 4), toMY(cz));
+          mCtx.stroke();
+        }
+      }
+    }
+
+    // Downtown park — lighter lawn core on the green pad.
+    if (map.theme === 'urban') {
+      const parks = (map.special && map.special.parks) || [];
+      parks.forEach(([pi, pj]) => {
+        if (pi >= gridCoords.length - 1 || pj >= gridCoords.length - 1) return;
+        const x1 = gridCoords[pi] + ROAD_W / 2;
+        const z1 = gridCoords[pj] + ROAD_W / 2;
+        const x2 = gridCoords[pi + 1] - ROAD_W / 2;
+        const z2 = gridCoords[pj + 1] - ROAD_W / 2;
+        const cx = (x1 + x2) / 2;
+        const cz = (z1 + z2) / 2;
+        const rw = (x2 - x1) * 0.55;
+        const rd = (z2 - z1) * 0.55;
+        mCtx.fillStyle = '#1e8449';
+        mCtx.fillRect(toMX(cx - rw / 2), toMY(cz - rd / 2), rw * scale, rd * scale);
+      });
+    }
+
+    // Factory yard (orange) + unload dock (green) — separate from the ⚡ pad.
     if (recyclingPlant3D) {
       mCtx.fillStyle = '#e67e22';
-      const fx = (recyclingPlant3D.x / (WORLD_SIZE / 2)) * halfW + halfW;
-      const fz = (recyclingPlant3D.z / (WORLD_SIZE / 2)) * halfH + halfH;
-      mCtx.fillRect(fx - 14, fz - 14, 28, 28);
+      const fx = toMX(recyclingPlant3D.x);
+      const fz = toMY(recyclingPlant3D.z);
+      const fHalf = Math.max(8, Math.min(16, (recyclingPlant3D.w || 40) * scale * 0.22));
+      mCtx.fillRect(fx - fHalf, fz - fHalf, fHalf * 2, fHalf * 2);
+
+      if (recyclingPlant3D.unloadBay) {
+        const ub = recyclingPlant3D.unloadBay;
+        const ux = toMX(ub.x);
+        const uz = toMY(ub.z);
+        const uw = Math.max(5, (ub.w || 14) * scale * 0.55);
+        const ud = Math.max(4, (ub.d || 12) * scale * 0.55);
+        mCtx.fillStyle = '#27ae60';
+        mCtx.fillRect(ux - uw / 2, uz - ud / 2, uw, ud);
+      }
     }
 
     // Charging Pad — bright cyan/green beacon with a ⚡ glyph so the player can
     // always find a top-up when the pack runs low.
     if (recyclingPlant3D && recyclingPlant3D.chargingBay) {
       const cb = recyclingPlant3D.chargingBay;
-      const gx = (cb.x / (WORLD_SIZE / 2)) * halfW + halfW;
-      const gy = (cb.z / (WORLD_SIZE / 2)) * halfH + halfH;
+      const gx = toMX(cb.x);
+      const gy = toMY(cb.z);
       const r = Math.max(5, cb.radius * scale);
 
       mCtx.save();
-      // Soft outer glow ring
       mCtx.beginPath();
       mCtx.arc(gx, gy, r, 0, Math.PI * 2);
       mCtx.fillStyle = 'rgba(0, 210, 211, 0.28)';
@@ -5805,13 +7665,11 @@
       mCtx.strokeStyle = '#00d2d3';
       mCtx.stroke();
 
-      // Solid inner disc
       mCtx.beginPath();
       mCtx.arc(gx, gy, r * 0.5, 0, Math.PI * 2);
       mCtx.fillStyle = '#2ecc71';
       mCtx.fill();
 
-      // Lightning glyph
       mCtx.font = 'bold 10px Outfit, monospace';
       mCtx.textAlign = 'center';
       mCtx.textBaseline = 'middle';
@@ -5825,8 +7683,8 @@
       if (b.collected) return;
       const isTarget = (gameState.targetBin === b);
       mCtx.fillStyle = isTarget ? '#00d2d3' : '#2ecc71';
-      const bx = (b.x / (WORLD_SIZE / 2)) * halfW + halfW;
-      const bz = (b.z / (WORLD_SIZE / 2)) * halfH + halfH;
+      const bx = toMX(b.x);
+      const bz = toMY(b.z);
       mCtx.beginPath();
       mCtx.arc(bx, bz, isTarget ? 5.0 : 3.5, 0, Math.PI * 2);
       mCtx.fill();
@@ -5839,8 +7697,8 @@
 
     // Truck
     mCtx.save();
-    const tx = (truckPhys.x / (WORLD_SIZE / 2)) * halfW + halfW;
-    const tz = (truckPhys.z / (WORLD_SIZE / 2)) * halfH + halfH;
+    const tx = toMX(truckPhys.x);
+    const tz = toMY(truckPhys.z);
     mCtx.translate(tx, tz);
     mCtx.rotate(-truckPhys.angle);
     mCtx.fillStyle = '#00d2d3';
@@ -5904,10 +7762,14 @@
   let frameCount = 0;
   function loop() {
     updatePhysics();
+    updateWipers();
+    updateAmberBeacons();
     updateRoboticArm3D();
     updateFactoryUnload3D();
     updateQuickDump3D();
     update3DParticles();
+    updateRainParticles();
+    updateStarField();
     updateInteractions3D();
     updateBinMarkers3D();
     updateDashboard();
@@ -5927,6 +7789,13 @@
     requestAnimationFrame(loop);
   }
 
-  initLevel();
+  // Boot into the map picker — the city is built only after the player picks a map.
+  setPendingMapSelection(activeMapId);
+  pendingWeather = loadWeatherPref();
+  setPendingTimeOfDay(loadTimeOfDayPref());
+  setPendingWeather(pendingWeather);
+  refreshMapSelectRecords();
+  updateBestTimeHUD();
+  if (mapSelectModal) mapSelectModal.classList.add('show');
   requestAnimationFrame(loop);
 })();

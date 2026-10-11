@@ -24,6 +24,12 @@ class SoundManager {
     // Hydraulic loop sound
     this.hydraulicOsc = null;
     this.hydraulicGain = null;
+
+    // Ambient rain loop (filtered noise)
+    this.rainNoise = null;
+    this.rainFilter = null;
+    this.rainGain = null;
+    this.rainEnabled = false;
   }
 
   init() {
@@ -103,9 +109,55 @@ class SoundManager {
       if (this.isMuted) {
         if (this.motorGain) this.motorGain.gain.setValueAtTime(0, this.ctx.currentTime);
         if (this.roadGain) this.roadGain.gain.setValueAtTime(0, this.ctx.currentTime);
+        if (this.rainGain) this.rainGain.gain.setValueAtTime(0, this.ctx.currentTime);
+      } else if (this.rainEnabled && this.rainGain) {
+        this.rainGain.gain.setTargetAtTime(0.045, this.ctx.currentTime, 0.25);
       }
     }
     return this.isMuted;
+  }
+
+  // Soft rain ambience — brownish noise through a mid bandpass.
+  setRain(enabled) {
+    this.rainEnabled = !!enabled;
+    this.ensureContext();
+    if (!this.isInitialized || !this.ctx) return;
+
+    if (!this.rainGain) {
+      try {
+        this.rainGain = this.ctx.createGain();
+        this.rainFilter = this.ctx.createBiquadFilter();
+        this.rainFilter.type = 'bandpass';
+        this.rainFilter.frequency.setValueAtTime(1400, this.ctx.currentTime);
+        this.rainFilter.Q.setValueAtTime(0.55, this.ctx.currentTime);
+        this.rainGain.gain.setValueAtTime(0, this.ctx.currentTime);
+
+        const bufferSize = this.ctx.sampleRate * 2;
+        const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+        const data = noiseBuffer.getChannelData(0);
+        let lastOut = 0.0;
+        for (let i = 0; i < bufferSize; i++) {
+          const white = Math.random() * 2 - 1;
+          data[i] = (lastOut + 0.035 * white) / 1.035;
+          lastOut = data[i];
+          data[i] *= 2.4;
+        }
+        this.rainNoise = this.ctx.createBufferSource();
+        this.rainNoise.buffer = noiseBuffer;
+        this.rainNoise.loop = true;
+        this.rainNoise.connect(this.rainFilter);
+        this.rainFilter.connect(this.rainGain);
+        this.rainGain.connect(this.ctx.destination);
+        this.rainNoise.start();
+      } catch (e) {
+        console.warn('Rain ambience failed', e);
+        return;
+      }
+    }
+
+    const t = this.ctx.currentTime;
+    const target = (this.rainEnabled && !this.isMuted) ? 0.045 : 0;
+    this.rainGain.gain.setTargetAtTime(target, t, 0.35);
   }
 
   // Update electric motor hum and road acoustics according to vehicle speed (0 to 1) and EV power flow
